@@ -1,7 +1,7 @@
 from util.sLogger import logger
 import ccxt
 import asyncio
-from tradeManager import TradeManager
+from core.tradeManager import TradeManager
 
 class WebSocketManager:
     def __init__(self,symbolName:str, wsExchange,tradeManage:TradeManager,watchColdDown=0.5):
