@@ -1,14 +1,14 @@
+from util import tradeUtil
 from util.sLogger import logger
 import ccxt
 import asyncio
 from core.tradeManager import TradeManager
 
 class WebSocketManager:
-    def __init__(self,symbolName:str, wsExchange,tradeManage:TradeManager,watchColdDown=0.5):
+    def __init__(self,symbolName:str, wsExchange,tradeManage:TradeManager):
         self.symbolName = symbolName
         self.wsExchange = wsExchange
         self.tradeManager = tradeManage
-        self.watchColdDown = watchColdDown
 
     async def watchTicker(self):
         logger.info(f"执行{self.symbolName}价格获取")
@@ -17,7 +17,6 @@ class WebSocketManager:
                 ticker = await self.wsExchange.watchTicker(self.symbolName)
                 # logger.info(f"{self.symbolName}当前价格: {ticker['last']}")
                 await self.tradeManager.updateLastPrice(float(ticker['last']))
-                await asyncio.sleep(self.watchColdDown)
         except ccxt.NetworkError as e:
             logger.error(f"{self.symbolName}价格获取网络错误: {e}")
         except ccxt.ExchangeError as e:
@@ -34,7 +33,6 @@ class WebSocketManager:
                 position = await self.wsExchange.watchPositions() 
             #   logger.info(f"{self.symbolName}当前持仓: {position}")
                 await self.tradeManager.updatePosition(position)    
-                await asyncio.sleep(self.watchColdDown)
       except ccxt.NetworkError as e:  
           logger.error(f"{self.symbolName}持仓获取网络错误: {e}")
       except ccxt.ExchangeError as e:
@@ -51,7 +49,6 @@ class WebSocketManager:
                 balance = await self.wsExchange.watchBalance()
             #   logger.info(f"当前余额: {balance['USDT']['free']}")
                 await self.tradeManager.updateBalance(float(balance['USDT']['free']))
-                await asyncio.sleep(self.watchColdDown)
       except ccxt.NetworkError as e:
           logger.error(f"余额获取网络错误: {e}")
       except ccxt.ExchangeError as e:
@@ -144,8 +141,9 @@ class WebSocketManager:
         try:
             while True:
                 allOrder = await self.wsExchange.watchOrders()
-                logger.info(f"{self.symbolName}当前订单: {allOrder}")
-                await asyncio.sleep(self.watchColdDown)
+                targetOrder = tradeUtil.openOrderFilter(allOrder,self.symbolName)
+                # logger.info(f"{self.symbolName}当前订单: {targetOrder}")
+                await self.tradeManager.updateOrders(targetOrder)
         except ccxt.NetworkError as e:
             logger.error(f"{self.symbolName}订单获取网络错误: {e}")
         except ccxt.ExchangeError as e:
@@ -153,4 +151,4 @@ class WebSocketManager:
         except asyncio.CancelledError:
             logger.info(f"{self.symbolName}订单获取任务已取消")
         except Exception as e:
-            logger.error(f"{self.symbolName}订单获取未知错误: {e}") 
+            logger.error(f"{self.symbolName}订单获取未知错误: {e}")

@@ -1,9 +1,10 @@
 from pickle import NONE
 import sys
 from util.sLogger import logger
+from util import tradeUtil
 
 class TradeManager:
-    def __init__(self,  symbolName: str,wsExchange,baseSpread=0.0008,minSpread=0.0005,maxSpread=0.002,orderCoolDown=0.5):
+    def __init__(self,  symbolName: str,wsExchange,baseSpread=0.0008,minSpread=0.0005,maxSpread=0.002,orderCoolDown=0.1,maxStockRadio=0.025):
         self.symbolName = symbolName
         self.wsExchange = wsExchange
         #价差需要除以2，因为是双边应用
@@ -17,6 +18,9 @@ class TradeManager:
         #下单冷却时间
         self.orderCoolDown = orderCoolDown
         self.openOrders = []
+        #最大持仓比例
+        self.maxStockRadio = maxStockRadio
+        self.nowStockRadio = 0.0
 
     #创建完对象后必须调用这个函数
     async def initSymbolInfo(self):
@@ -50,8 +54,9 @@ class TradeManager:
 
         #初始化未成交的订单信息
         try:
-            allOpenOrder = await e.fetchOpenOrders(self.symbolName)
-            self.openOrders = allOpenOrder
+            allOrder = await e.fetchOpenOrders()
+            openOrder = tradeUtil.openOrderFilter(allOrder,self.symbolName)
+            self.openOrders = openOrder
             logger.info(f"{self.symbolName}当前订单: {self.openOrders}")
         except Exception as e:
             logger.error(f"{self.symbolName}初始化获取订单信息失败，终止程序: {e}")
@@ -77,7 +82,7 @@ class TradeManager:
     #更新最新价格
     async def updateLastPrice(self,lastPrice:float):
         if self.lastPrice != lastPrice:
-            logger.info(f"{self.symbolName}最新价格更新为{lastPrice}")
+            # logger.info(f"{self.symbolName}最新价格更新为{lastPrice}")
             self.lastPrice = lastPrice
             
 
@@ -86,10 +91,39 @@ class TradeManager:
         self.position = position
         logger.info(f"{self.symbolName}当前持仓更新: {self.position}")
 
-    #更新订单数量
+    #更新下单数量
     async def updateOrderAmount(self,orderAmount:float):
         if orderAmount < self.minOrderAmount:
             logger.warning(f"订单数量不能小于最小订单数量{self.minOrderAmount}，已设置为该交易对的最小订单数量")
             self.orderAmount = self.minOrderAmount
         else:
             self.orderAmount = orderAmount
+
+    #更新未成交订单
+    async def updateOrders(self,orders):
+        self.openOrders = orders
+        logger.info(f"{self.symbolName}未成交订单更新: {self.openOrders}")
+        logger.info(f"{self.symbolName}未成交订单数量: {len(self.openOrders)}")
+
+    #计算下单数量
+    async def calculateOrderAmount(self):
+        marginSize = tradeUtil.positionMarginSize(self.position,self.symbolName)
+        if marginSize == 0:
+            return self.orderAmount
+
+    #计算买卖单价格
+    async def calculateOrderPrice(self):
+        pass
+
+    #下单
+    async def placeOrder(self):
+        pass
+
+    #运行流程
+    async def run(self):
+        await self.initSymbolInfo()
+        while True:
+            await self.calculateOrderAmount()
+            await self.calculateOrderPrice()
+            await self.placeOrder()
+            await asyncio.sleep(self.orderCoolDown)
