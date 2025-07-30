@@ -1,4 +1,5 @@
 from decimal import Decimal
+from logging import info
 from pdb import run
 from pickle import NONE
 import sys
@@ -8,7 +9,7 @@ from util import tradeUtil
 import asyncio
 
 class TradeManager:
-    def __init__(self,  symbolName: str,wsExchange,baseSpread=0.0008,minSpread=0.0005,maxSpread=0.002,orderCoolDown=0.1,maxStockRadio=0.025):
+    def __init__(self,  symbolName: str,wsExchange,baseSpread=0.0008,minSpread=0.0004,maxSpread=0.002,orderCoolDown=0.1,maxStockRadio=0.25):
         self.symbolName = symbolName
         self.wsExchange = wsExchange
         #价差需要除以2，因为是双边应用
@@ -60,43 +61,43 @@ class TradeManager:
             logger.error(f"{self.symbolName}初始化市场信息失败，终止程序: {e}")  
             sys.exit(1)
 
-        #获取交易对价格
-        try:
-            ticker = await e.fetchTicker(self.symbolName)
-            self.lastPrice = float(ticker['last'])
-            logger.info(f"{self.symbolName}当前价格: {self.lastPrice}")
-        except Exception as e:
-            logger.error(f"{self.symbolName}获取交易对价格失败，终止程序: {e}")
-            sys.exit(1)
+        # #获取交易对价格
+        # try:
+        #     ticker = await e.fetchTicker(self.symbolName)
+        #     self.lastPrice = float(ticker['last'])
+        #     logger.info(f"{self.symbolName}当前价格: {self.lastPrice}")
+        # except Exception as e:
+        #     logger.error(f"{self.symbolName}获取交易对价格失败，终止程序: {e}")
+        #     sys.exit(1)
 
-        #初始化未成交的订单信息
-        try:
-            allOrder = await e.fetchOpenOrders()
-            openOrder = tradeUtil.openOrderFilter(allOrder,self.symbolName)
-            self.openOrders = openOrder
-            logger.info(f"{self.symbolName}当前订单: {self.openOrders}")
-        except Exception as e:
-            logger.error(f"{self.symbolName}初始化获取订单信息失败，终止程序: {e}")
-            sys.exit(1)
+        # #初始化未成交的订单信息
+        # try:
+        #     allOrder = await e.fetchOpenOrders()
+        #     openOrder = tradeUtil.openOrderFilter(allOrder,self.symbolName)
+        #     self.openOrders = openOrder
+        #     logger.info(f"{self.symbolName}当前订单: {self.openOrders}")
+        # except Exception as e:
+        #     logger.error(f"{self.symbolName}初始化获取订单信息失败，终止程序: {e}")
+        #     sys.exit(1)
         
-        #初始化持仓信息
-        try:
-            allPosition = await e.fetchPositions()
-            self.position = allPosition
-            logger.info(f"{self.symbolName}当前持仓: {self.position}")
-            await self.updateStockRadio()
-        except Exception as e:
-            logger.error(f"{self.symbolName}初始化获取持仓信息失败，终止程序: {e}")
-            sys.exit(1)
-
-        logger.info(f"{self.symbolName}初始化完成")
-        await self.runTrade()
+        # #初始化持仓信息
+        # try:
+        #     allPosition = await e.fetchPositions()
+        #     self.position = allPosition
+        #     logger.info(f"{self.symbolName}当前持仓: {self.position}")
+        # except Exception as e:
+        #     logger.error(f"{self.symbolName}初始化获取持仓信息失败，终止程序: {e}")
+        #     sys.exit(1)
+        
+        # logger.info(f"{self.symbolName}初始化完成")
+        # await self.updateStockRadio()
+        # await self.runTrade()
         
 
     #更新余额
     async def updateBalance(self,balance:float):
         self.balance = balance
-        logger.info(f"{self.symbolName}当前余额更新为{balance}")
+        # logger.info(f"{self.symbolName}当前余额更新为{balance}")
 
     #更新最新价格
     async def updateLastPrice(self,lastPrice:float):
@@ -106,6 +107,7 @@ class TradeManager:
         #当价格超过最新买单价一定范围后重新挂买单
         if self.lastBuyPrice != 0.0:
             if lastPrice > self.lastBuyPrice * (1+self.baseSpread):
+                logger.info(f"{self.symbolName}最新价格{lastPrice}超过最新买单价{self.lastBuyPrice}*(1+{self.baseSpread})，重新挂买单")
                 await self.cancelAllOrder()
                 await self.runTrade()
             
@@ -113,13 +115,9 @@ class TradeManager:
     #更新持仓
     async def updatePosition(self,position):
         self.position = position
-        logger.info(f"{self.symbolName}当前持仓更新: {self.position}")
-        tempRatio = self.nowStockRadio
+        # logger.info(f"{self.symbolName}当前持仓更新: {self.position}")
+        # tempRatio = self.nowStockRadio
         await self.updateStockRadio()
-        if tempRatio != self.nowStockRadio:
-        #持仓更新时，取消所有订单并重新挂单
-            await self.cancelAllOrder()
-            await self.runTrade()
 
     #更新下单数量
     async def updateOrderAmount(self,orderAmount:float):
@@ -133,7 +131,7 @@ class TradeManager:
     async def updateOrders(self,orders):
         self.openOrders = orders
         # logger.info(f"{self.symbolName}未成交订单更新: {self.openOrders}")
-        logger.info(f"{self.symbolName}未成交订单数量: {len(self.openOrders)}")
+        # logger.info(f"{self.symbolName}未成交订单数量: {len(self.openOrders)}")
 
 
     #计算下单数量
@@ -146,17 +144,30 @@ class TradeManager:
     async def calculateOrderPrice(self):
         #根据库存数量重构价差
         ratio = self.nowStockRadio/self.maxStockRadio
-        buySpread = self.baseSpread * (0.75+ratio)
+        buySpread,sellSpread = self.baseSpread
+        balanceRatio = 0.5
+        '''
+        对于买单价差
+        - 当 ratio = 0 时, spread = minSpread
+        - 当 0 < ratio <= 0.5 时, spread 从 minSpread 线性增长到 baseSpread
+        - 当 0.5 < ratio <= 1 时, spread 从 baseSpread 线性增长到 maxSpread
+        '''
+        if ratio < balanceRatio:
+            buySpread = 2 * (self.baseSpread-self.minSpread) * (ratio - 0) + self.minSpread
+            sellSpread = 2 * (self.baseSpread-self.maxSpread) * (ratio - 0) + self.maxSpread
+        else:
+            buySpread = 2 * (self.maxSpread-self.baseSpread) * (ratio- balanceRatio) + self.baseSpread
+            sellSpread = 2 * (self.minSpread-self.baseSpread) * (ratio- balanceRatio) + self.baseSpread
+        
         if buySpread < self.minSpread:
             buySpread = self.minSpread
         if buySpread > self.maxSpread:
             buySpread = self.maxSpread
-        sellSpread = self.baseSpread * (1-ratio)
         if sellSpread < self.minSpread:
             sellSpread = self.minSpread
         if sellSpread > self.maxSpread:
             sellSpread = self.maxSpread
-        print(f"默认价差为{self.baseSpread}，当前持仓比例为{ratio}，当前价差为{buySpread}")
+        print(f"默认价差为{self.baseSpread}，当前持仓比例为{ratio}，当前买单价差为{buySpread}，当前卖单价差为{sellSpread}")
         #计算买卖价格
         buyPrice = self.lastPrice * (1 - buySpread)
         sellPrice = self.lastPrice * (1 + sellSpread)
@@ -165,8 +176,14 @@ class TradeManager:
     #更新持仓比例
     async def updateStockRadio(self):
         marginSize = tradeUtil.positionMarginSize(self.position,self.symbolName)
-        self.nowStockRadio = marginSize / (self.balance+marginSize)
-        logger.info(f"{self.symbolName}当前持仓比例: {self.nowStockRadio}")
+        ratio = marginSize / (self.balance+marginSize)
+        if self.nowStockRadio != ratio:
+            self.nowStockRadio = ratio
+            # logger.info(f"{self.symbolName}当前持仓比例更新: {self.nowStockRadio}")
+            #当持仓比例更新时，取消所有订单并重新挂单
+            logger.info(f"{self.symbolName}当前持仓比例更新为{ratio}，取消所有订单并重新挂单")
+            await self.cancelAllOrder()
+            await self.runTrade()
 
     #下单
     async def placeOrder(self,amount,price,side,reduceOnly):
@@ -184,7 +201,7 @@ class TradeManager:
         else:
             logger.info(f"{self.symbolName}下单成功: {order['id']},下单数量: {amount},下单价格: {price},方向: {side}")
             if side == "buy":
-                self.lastBuyPrice = price
+                self.lastBuyPrice = self.lastPrice
             return order
 
     #取消全部订单
@@ -221,3 +238,5 @@ class TradeManager:
                 await orderBuy
         except Exception as e:
             logger.error(f"{self.symbolName}下单失败: {e}")
+
+    
