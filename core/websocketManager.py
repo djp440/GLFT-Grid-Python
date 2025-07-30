@@ -69,7 +69,8 @@ class WebSocketManager:
         while self.run:
             try:
                 allOrder = await self.wsExchange.watchOrders()
-                targetOrder = tradeUtil.openOrderFilter(allOrder,self.symbolName)
+                # logger.info(f"当前全部订单: {allOrder}")
+                targetOrder = await tradeUtil.openOrderFilter(allOrder,self.symbolName)
                 # logger.info(f"{self.symbolName}当前订单: {targetOrder}")
                 await self.tradeManager.updateOrders(targetOrder)
             except ccxt.NetworkError as e:

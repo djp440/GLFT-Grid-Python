@@ -1,13 +1,15 @@
 from util.sLogger import logger
+import asyncio
 
-def openOrderFilter(orders,symbolName):
+async def openOrderFilter(orders,symbolName):
     target = []
     for order in orders:
         if order['symbol'] == symbolName and order['status'] == 'open':
             target.append(order)
+            logger.info(f"找到{symbolName}未成交订单: {order['id']}")
     return target
 
-def positionMarginSize(position,symbolName):
+async def positionMarginSize(position,symbolName):
     if len(position) == 0:
         return 0.0
     marginSize = 0.0
@@ -18,7 +20,7 @@ def positionMarginSize(position,symbolName):
     return marginSize
 
 #检查当前订单列表未成交的订单数量是不是2，且是不是1个买单和1个卖单
-def checkOpenOrder(openOrders):
+async def checkOpenOrder(openOrders):
     if len(openOrders) != 2:
         return False
     buyCount = 0

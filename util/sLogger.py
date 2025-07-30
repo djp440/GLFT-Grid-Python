@@ -34,7 +34,7 @@ class SingletonLogger:
                 if not os.path.exists(log_dir):
                     os.makedirs(log_dir)
 
-                current_date = datetime.now().strftime("%Y-%m-%d")
+                current_date = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
                 log_file_name = os.path.join(log_dir, f"{name}_{current_date}.log")
 
                 file_handler = RotatingFileHandler(
