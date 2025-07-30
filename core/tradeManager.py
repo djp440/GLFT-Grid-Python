@@ -104,10 +104,11 @@ class TradeManager:
         if self.lastPrice != lastPrice:
             # logger.info(f"{self.symbolName}最新价格更新为{lastPrice}")
             self.lastPrice = lastPrice
-        #当价格超过最新买单价一定范围后重新挂买单
+        #当没有持仓且价格超过最新买单价一定范围后重新挂买单
         if self.lastBuyPrice != 0.0:
-            if lastPrice > self.lastBuyPrice * (1+self.baseSpread):
-                logger.info(f"{self.symbolName}最新价格{lastPrice}超过最新买单价{self.lastBuyPrice}*(1+{self.baseSpread})，重新挂买单")
+            # 当没有持仓且价格超过最新买单价一定范围时重新挂买单
+            if tradeUtil.positionMarginSize(self.position,self.symbolName) == 0 and lastPrice > self.lastBuyPrice * (1 + self.baseSpread):
+                logger.info(f"{self.symbolName}无持仓且最新价格{lastPrice}超过最新买单价{self.lastBuyPrice}*(1+{self.baseSpread})，重新挂买单")
                 await self.cancelAllOrder()
                 await self.runTrade()
             
@@ -144,7 +145,7 @@ class TradeManager:
     async def calculateOrderPrice(self):
         #根据库存数量重构价差
         ratio = self.nowStockRadio/self.maxStockRadio
-        buySpread,sellSpread = self.baseSpread
+        buySpread,sellSpread = self.baseSpread,self.baseSpread
         balanceRatio = 0.5
         '''
         对于买单价差
