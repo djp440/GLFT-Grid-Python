@@ -16,9 +16,14 @@ class WebSocketManager:
         logger.info(f"执行{self.symbolName}价格获取")
         while self.run:
             try:
-                ticker = await self.wsExchange.watchTicker(self.symbolName)
-                 # logger.info(f"{self.symbolName}当前价格: {ticker['last']}")
-                await self.tradeManager.updateLastPrice(float(ticker['last']))
+                # ticker = await self.wsExchange.watchTicker(self.symbolName)
+                #  # logger.info(f"{self.symbolName}当前价格: {ticker['last']}")
+                # await self.tradeManager.updateLastPrice(float(ticker['last']))
+                orderbook = await self.wsExchange.watchOrderBook(self.symbolName)
+                # logger.info(f"{self.symbolName}当前订单簿: {orderbook}")
+                bid = orderbook['bids'][0][0]
+                ask = orderbook['asks'][0][0]
+                await self.tradeManager.updateLastPrice(float(((bid+ask)/2)))
             except ccxt.NetworkError as e:
                 logger.error(f"{self.symbolName}价格获取网络错误: {e}")
             except ccxt.ExchangeError as e:

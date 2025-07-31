@@ -3,6 +3,7 @@ from logging import info
 from pdb import run
 from pickle import NONE
 import sys
+from time import sleep
 from turtle import update
 from util.sLogger import logger
 from util import tradeUtil
@@ -95,7 +96,7 @@ class TradeManager:
         
         logger.info(f"{self.symbolName}初始化完成")
         # await self.updateStockRadio()
-        # await self.runTrade()
+        await self.runTrade()
         
 
     #更新余额
@@ -127,10 +128,11 @@ class TradeManager:
         if self.nowStockRadio != ratio:
             self.nowStockRadio = ratio
             # 当持仓比例更新时，取消所有订单并重新挂单
-            logger.info(f"{self.symbolName}当前持仓比例更新为{ratio}，取消所有订单并重新挂单")
+            # logger.info(f"{self.symbolName}当前持仓比例更新为{ratio}，取消所有订单并重新挂单")
+            logger.info(f"{self.symbolName}当前持仓比例更新为{ratio}({ratio*100}%)")
             # await self.cancelAllOrder()
-            await self.runTrade()
-            return
+            # await self.runTrade()
+            # return
         if ratio == 0 and len(self.openOrders) == 0:
             logger.info(f"{self.symbolName}当前持仓比例为0，重新挂单")
             await self.runTrade()

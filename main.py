@@ -19,6 +19,7 @@ sandbox = os.getenv("sandbox")
 exchangeWS = None
 shutdown_event = None
 tasks = []
+running = False
 
 async def runWebsocketTask(symbolName: str):
     global exchangeWS, tasks
@@ -36,13 +37,12 @@ async def runWebsocketTask(symbolName: str):
         tm = core.tradeManager.TradeManager(symbolName, exchangeWS)
         await tm.initSymbolInfo()
         wm = core.websocketManager.WebSocketManager(symbolName, exchangeWS, tm)
-        
         # 创建任务并存储引用
         tasks = [
             asyncio.create_task(wm.watchTicker()),
             asyncio.create_task(wm.watchMyBalance()),
             asyncio.create_task(wm.watchMyPosition()),
-            asyncio.create_task(wm.watchMyOrder())
+            asyncio.create_task(wm.watchMyOrder()),
         ]
         
         # 等待关闭事件或任务完成
