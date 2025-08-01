@@ -102,12 +102,13 @@ class TradeManager:
     async def bindWebsocketManager(self,websocketManager):
         self.websocketManager = websocketManager
     
-    async def onOrderFilled(self, filled_orders):
+    async def onOrderFilled(self, filled_orders=None):
         """
         处理订单成交后的逻辑
         """
-        logger.info(f"{self.symbolName}处理订单成交事件，成交订单数量: {len(filled_orders)}")
-        
+        if filled_orders is None:
+            logger.info(f"{self.symbolName}处理订单成交事件，成交订单数量: {len(filled_orders)}")
+
         # 更新订单状态和持仓信息
         try:
             # 重新获取最新的订单信息
@@ -121,7 +122,7 @@ class TradeManager:
             
             # 重新获取余额信息
             balance = await self.wsExchange.fetchBalance()
-            await self.updateBalance(balance['USDT']['free'])
+            await self.updateBalance(balance['USDT']['free'],balance['USDT']['total'])
             
             logger.info(f"{self.symbolName}订单成交后状态更新完成")
             
@@ -294,7 +295,7 @@ class TradeManager:
             self.networkError = True
             while self.networkError:
                 try:
-                    await self.runTrade()
+                    await self.onOrderFilled()
                 except Exception as e:
                     logger.error(f"{self.symbolName}发生错误，5s后重试: {e}")
                     await asyncio.sleep(5)
