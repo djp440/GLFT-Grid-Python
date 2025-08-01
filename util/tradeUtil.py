@@ -6,7 +6,7 @@ async def openOrderFilter(orders,symbolName):
     for order in orders:
         if order['symbol'] == symbolName and order['status'] == 'open':
             target.append(order)
-            logger.info(f"找到{symbolName}未成交订单: {order['id']}")
+            # logger.info(f"找到{symbolName}未成交订单: {order['id']}")
     return target
 
 #根据id查找订单

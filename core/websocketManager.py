@@ -61,7 +61,7 @@ class WebSocketManager:
         try:
             balance = await self.wsExchange.watchBalance()
             #   logger.info(f"当前余额: {balance['USDT']['free']}")
-            await self.tradeManager.updateBalance(float(balance['USDT']['free']))
+            await self.tradeManager.updateBalance(float(balance['USDT']['free']),float(balance['USDT']['total']))
         except ccxt.NetworkError as e:
             logger.error(f"余额获取网络错误: {e}")
             await self.tradeManager.networkHelper()

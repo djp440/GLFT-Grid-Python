@@ -119,7 +119,7 @@ async def main_async():
     shutdown_event = asyncio.Event()
     
     try:
-        await runWebsocketTask("ETH/USDT:USDT")
+        await runWebsocketTask("SOL/USDT:USDT")
     except KeyboardInterrupt:
         logger.info("程序被手动中断")
     except Exception as e:

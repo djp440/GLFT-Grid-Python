@@ -1,11 +1,12 @@
 from decimal import Decimal
 import sys
+from turtle import up
 from util.sLogger import logger
 from util import tradeUtil
 import asyncio
 
 class TradeManager:
-    def __init__(self,  symbolName: str,wsExchange,baseSpread=0.001,minSpread=0.0008,maxSpread=0.003,orderCoolDown=0.1,maxStockRadio=0.25):
+    def __init__(self,  symbolName: str,wsExchange,baseSpread=0.001,minSpread=0.0008,maxSpread=0.003,orderCoolDown=0.1,maxStockRadio=0.25,orderAmountRatio=0.05):
         self.symbolName = symbolName
         self.wsExchange = wsExchange
         #价差需要除以2，因为是双边应用
@@ -13,9 +14,11 @@ class TradeManager:
         self.minSpread = minSpread/2
         self.maxSpread = maxSpread/2
         self.balance:float = None
+        self.equity:float = None
         self.lastPrice:float = None
         self.position = []
         self.orderAmount:float = None
+        self.orderAmountRatio = orderAmountRatio
         #下单冷却时间
         self.orderCoolDown = orderCoolDown
         self.openOrders = []
@@ -36,8 +39,7 @@ class TradeManager:
         #初始化余额
         try:
             balance = await e.fetchBalance()
-            self.balance = balance['USDT']['free']
-            logger.info(f"当前余额: {self.balance}")
+            await self.updateBalance(balance['USDT']['free'],balance['USDT']['total'])
         except Exception as e:
             logger.error(f"初始化获取余额信息失败，终止程序: {e}")
             sys.exit(1)
@@ -90,6 +92,8 @@ class TradeManager:
         except Exception as e:
             logger.error(f"{self.symbolName}初始化获取持仓信息失败，终止程序: {e}")
             sys.exit(1)
+
+        await self.updateOrderAmount()
         
         logger.info(f"{self.symbolName}初始化完成")
  
@@ -133,8 +137,10 @@ class TradeManager:
             await self.networkHelper()
 
     #更新余额
-    async def updateBalance(self,balance:float):
+    async def updateBalance(self,balance:float,equity:float):
         self.balance = balance
+        self.equity = equity
+        logger.info(f"{self.symbolName}当前余额: {self.balance},当前权益: {self.equity}")
 
     #更新最新价格
     async def updateLastPrice(self,lastPrice:float):
@@ -158,12 +164,15 @@ class TradeManager:
             logger.info(f"{self.symbolName}当前持仓比例更新为{ratio}({ratio*100}%)")
 
     #更新下单数量
-    async def updateOrderAmount(self,orderAmount:float):
+    async def updateOrderAmount(self,orderAmount:float=None):
+        if orderAmount is None:
+            orderAmount = self.equity/self.lastPrice*self.orderAmountRatio
         if orderAmount < self.minOrderAmount:
             logger.warning(f"订单数量不能小于最小订单数量{self.minOrderAmount}，已设置为该交易对的最小订单数量")
             self.orderAmount = self.minOrderAmount
         else:
             self.orderAmount = orderAmount
+            logger.info(f"{self.symbolName}当前下单数量更新为{self.orderAmount}")
 
     #更新未成交订单
     async def updateOrders(self,orders):
