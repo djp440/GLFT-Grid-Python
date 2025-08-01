@@ -276,34 +276,127 @@ class TradeManager:
                 if self.nowStockRadio != 0:
                     orderSell = self.placeOrder(self.orderAmount,sellPrice,"sell",True)
                     b,s = await asyncio.gather(orderBuy,orderSell)
+                    # 检查是否有订单下单失败
+                    if not b or not s:
+                        logger.warning(f"{self.symbolName}部分订单下单失败，买单: {b is not None}, 卖单: {s is not None}")
+                        # 如果有订单失败，触发网络重连恢复
+                        await self.networkHelper()
+                        return
                     if self.websocketManager and b and s:
                         await self.websocketManager.runOpenOrderWatch(b,s)
                 else:
                     b = await orderBuy
+                    if not b:
+                        logger.warning(f"{self.symbolName}买单下单失败")
+                        # 如果买单失败，触发网络重连恢复
+                        await self.networkHelper()
+                        return
                     if self.websocketManager and b:
                         await self.websocketManager.runOpenOrderWatch(b)
 
             except Exception as e:
                 logger.error(f"{self.symbolName}下单失败: {e}")
+                # 下单异常时触发网络重连恢复
+                await self.networkHelper()
                 
         except Exception as e:
             logger.error(f"{self.symbolName}运行交易流程时发生错误: {e}")
+            # 运行交易流程异常时触发网络重连恢复
+            await self.networkHelper()
+
+    #恢复模式下的交易流程（不触发networkHelper）
+    async def runTradeInRecovery(self):
+        """在恢复模式下执行交易逻辑，失败时不会再次触发networkHelper"""
+        try:
+            if await tradeUtil.checkOpenOrder(self.openOrders):
+                logger.info(f"{self.symbolName}当前未成交订单数量为2，且1个买单和1个卖单，跳过挂单")
+                return
+            
+            if len(self.openOrders) != 0:
+                logger.info(f"{self.symbolName}当前未成交订单数量不是2，或不是1个买单和1个卖单，继续挂单")
+                try:
+                    await self.cancelAllOrder()
+                except Exception as e:
+                    logger.error(f"{self.symbolName}取消全部订单失败: {e}")
+                    raise e
+
+            try:
+                buyPrice,sellPrice = await self.calculateOrderPrice()
+                orderBuy = self.placeOrder(self.orderAmount,buyPrice,"buy",False)
+                orderSell = None
+                if self.nowStockRadio != 0:
+                    orderSell = self.placeOrder(self.orderAmount,sellPrice,"sell",True)
+                    b,s = await asyncio.gather(orderBuy,orderSell)
+                    # 检查是否有订单下单失败
+                    if not b or not s:
+                        logger.error(f"{self.symbolName}恢复模式下部分订单下单失败，买单: {b is not None}, 卖单: {s is not None}")
+                        raise Exception("恢复模式下订单下单失败")
+                    if self.websocketManager and b and s:
+                        await self.websocketManager.runOpenOrderWatch(b,s)
+                else:
+                    b = await orderBuy
+                    if not b:
+                        logger.error(f"{self.symbolName}恢复模式下买单下单失败")
+                        raise Exception("恢复模式下买单下单失败")
+                    if self.websocketManager and b:
+                        await self.websocketManager.runOpenOrderWatch(b)
+
+            except Exception as e:
+                logger.error(f"{self.symbolName}恢复模式下单失败: {e}")
+                raise e
+                
+        except Exception as e:
+            logger.error(f"{self.symbolName}恢复模式运行交易流程时发生错误: {e}")
+            raise e
 
     #网络重连函数
     async def networkHelper(self):
         if not self.networkError:
             self.networkError = True
+            logger.info(f"{self.symbolName}开始网络错误恢复流程")
             while self.networkError:
                 try:
-                    await self.onOrderFilled()
+                    # 等待一段时间后重新尝试交易
+                    await asyncio.sleep(5)
+                    # 重新获取最新状态
+                    await self.refreshAllStatus()
+                    # 重新执行交易逻辑（在恢复模式下执行）
+                    await self.runTradeInRecovery()
                 except Exception as e:
-                    logger.error(f"{self.symbolName}发生错误，5s后重试: {e}")
+                    logger.error(f"{self.symbolName}恢复过程中发生错误，5s后重试: {e}")
                     await asyncio.sleep(5)
                 else:
-                    logger.info(f"{self.symbolName}恢复运行成功")
+                    logger.info(f"{self.symbolName}网络错误恢复成功")
                     self.networkError = False
         else:
             logger.info(f"{self.symbolName}已经在处理网络错误中")
+
+    #刷新所有状态信息
+    async def refreshAllStatus(self):
+        """刷新余额、订单、持仓等所有状态信息"""
+        try:
+            # 重新获取余额信息
+            balance = await self.wsExchange.fetchBalance()
+            await self.updateBalance(balance['USDT']['free'], balance['USDT']['total'])
+            
+            # 重新获取订单信息
+            allOrder = await self.wsExchange.fetchOpenOrders(self.symbolName)
+            targetOrder = await tradeUtil.openOrderFilter(allOrder, self.symbolName)
+            await self.updateOrders(targetOrder)
+            
+            # 重新获取持仓信息
+            allPosition = await self.wsExchange.fetchPositions()
+            await self.updatePosition(allPosition)
+            
+            # 重新获取价格信息
+            ticker = await self.wsExchange.fetchTicker(self.symbolName)
+            await self.updateLastPrice(float(ticker['last']))
+            
+            logger.info(f"{self.symbolName}状态信息刷新完成")
+            
+        except Exception as e:
+            logger.error(f"{self.symbolName}刷新状态信息失败: {e}")
+            raise e
 
     #使用REST请求更新订单
     async def getAllOrdersREST(self):
