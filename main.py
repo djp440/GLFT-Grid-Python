@@ -13,6 +13,9 @@ load_dotenv()
 apiKey = os.getenv("apiKey")
 secret = os.getenv("secret")
 password = os.getenv("password")
+okx_apiKey = os.getenv("okx_apiKey")
+okx_secret = os.getenv("okx_secret")
+okx_password = os.getenv("okx_password")
 sandbox = os.getenv("sandbox")
 
 # 全局变量
@@ -24,7 +27,7 @@ running = False
 async def runWebsocketTask(symbolName: str):
     global exchangeWS, tasks
     try:
-        exchangeWS = ccxt.pro.bitget({
+        exchangeBitget = ccxt.pro.bitget({
             'apiKey': apiKey,
             'secret': secret,
             'password': password,
@@ -33,17 +36,34 @@ async def runWebsocketTask(symbolName: str):
             },
             'sandbox': sandbox == "True"
         })
-        
+        exchangeOkx = ccxt.pro.okx({
+            'apiKey': okx_apiKey,
+            'secret': okx_secret,
+            'password': okx_password,
+            'options': {
+                'defaultType': 'future',
+            },
+            'sandbox': sandbox == "True"
+        })
+
+        exchangeWS = exchangeBitget
+        # test = await exchangeWS.loadMarkets()
+        # logger.info(test[symbolName])
         tm = core.tradeManager.TradeManager(symbolName, exchangeWS)
         await tm.initSymbolInfo()
         wm = core.websocketManager.WebSocketManager(symbolName, exchangeWS, tm)
+        
         # 创建任务并存储引用
         tasks = [
             asyncio.create_task(wm.watchTicker()),
             asyncio.create_task(wm.watchMyBalance()),
             asyncio.create_task(wm.watchMyPosition()),
             asyncio.create_task(wm.watchMyOrder()),
+            asyncio.create_task(wm.watchOpenOrder()),
         ]
+        #我想让这两行在上面5个任务被初始化后被执行
+        await tm.bindWebsocketManager(wm)
+        await tm.runTrade()
         
         # 等待关闭事件或任务完成
         done, pending = await asyncio.wait(
@@ -99,7 +119,7 @@ async def main_async():
     shutdown_event = asyncio.Event()
     
     try:
-        await runWebsocketTask("SOL/USDT:USDT")
+        await runWebsocketTask("ETH/USDT:USDT")
     except KeyboardInterrupt:
         logger.info("程序被手动中断")
     except Exception as e:

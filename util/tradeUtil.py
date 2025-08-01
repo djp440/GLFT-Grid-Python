@@ -9,6 +9,13 @@ async def openOrderFilter(orders,symbolName):
             logger.info(f"找到{symbolName}未成交订单: {order['id']}")
     return target
 
+#根据id查找订单
+async def findOrderById(orders,orderId):
+    for order in orders:
+        if order['id'] == orderId:
+            return order
+    return None
+
 async def positionMarginSize(position,symbolName):
     if len(position) == 0:
         return 0.0

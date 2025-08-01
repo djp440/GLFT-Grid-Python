@@ -1,16 +1,11 @@
 from decimal import Decimal
-from logging import info
-from pdb import run
-from pickle import NONE
 import sys
-from time import sleep
-from turtle import update
 from util.sLogger import logger
 from util import tradeUtil
 import asyncio
 
 class TradeManager:
-    def __init__(self,  symbolName: str,wsExchange,baseSpread=0.0008,minSpread=0.0004,maxSpread=0.002,orderCoolDown=0.1,maxStockRadio=0.25):
+    def __init__(self,  symbolName: str,wsExchange,baseSpread=0.001,minSpread=0.0008,maxSpread=0.003,orderCoolDown=0.1,maxStockRadio=0.25):
         self.symbolName = symbolName
         self.wsExchange = wsExchange
         #价差需要除以2，因为是双边应用
@@ -28,10 +23,12 @@ class TradeManager:
         self.maxStockRadio = maxStockRadio
         self.nowStockRadio = 0.0
         self.lastBuyPrice = 0.0
-        self.lastBuyOrderId:number = None
-        self.lastSellOrderId:number = None
+        self.lastBuyOrderId = None
+        self.lastSellOrderId = None
         self.checkOrder = False
         self._update_lock = asyncio.Lock()  # 添加锁
+        self.networkError = False
+        self.websocketManager = None
     
     #创建完对象后必须调用这个函数
     async def initSymbolInfo(self):
@@ -80,62 +77,85 @@ class TradeManager:
             allOrder = await e.fetchOpenOrders()
             openOrder = await tradeUtil.openOrderFilter(allOrder,self.symbolName)
             self.openOrders = openOrder
-            logger.info(f"{self.symbolName}当前订单: {self.openOrders}")
+            # logger.info(f"{self.symbolName}当前订单: {self.openOrders}")
         except Exception as e:
             logger.error(f"{self.symbolName}初始化获取订单信息失败，终止程序: {e}")
             sys.exit(1)
         
-        # #初始化持仓信息
-        # try:
-        #     allPosition = await e.fetchPositions()
-        #     self.position = allPosition
-        #     logger.info(f"{self.symbolName}当前持仓: {self.position}")
-        # except Exception as e:
-        #     logger.error(f"{self.symbolName}初始化获取持仓信息失败，终止程序: {e}")
-        #     sys.exit(1)
+        #初始化持仓信息
+        try:
+            allPosition = await e.fetchPositions()
+            await self.updatePosition(allPosition)
+            # logger.info(f"{self.symbolName}当前持仓: {self.position}")
+        except Exception as e:
+            logger.error(f"{self.symbolName}初始化获取持仓信息失败，终止程序: {e}")
+            sys.exit(1)
         
         logger.info(f"{self.symbolName}初始化完成")
-        # await self.updateStockRadio()
-        await self.runTrade()
+ 
         
+        
+    async def bindWebsocketManager(self,websocketManager):
+        self.websocketManager = websocketManager
+    
+    async def onOrderFilled(self, filled_orders):
+        """
+        处理订单成交后的逻辑
+        """
+        logger.info(f"{self.symbolName}处理订单成交事件，成交订单数量: {len(filled_orders)}")
+        
+        # 更新订单状态和持仓信息
+        try:
+            # 重新获取最新的订单信息
+            allOrder = await self.wsExchange.fetchOpenOrders(self.symbolName)
+            targetOrder = await tradeUtil.openOrderFilter(allOrder, self.symbolName)
+            await self.updateOrders(targetOrder)
+            
+            # 重新获取持仓信息
+            allPosition = await self.wsExchange.fetchPositions()
+            await self.updatePosition(allPosition)
+            
+            # 重新获取余额信息
+            balance = await self.wsExchange.fetchBalance()
+            await self.updateBalance(balance['USDT']['free'])
+            
+            logger.info(f"{self.symbolName}订单成交后状态更新完成")
+            
+            # 延迟一段时间后重新挂单，避免频繁操作
+            await asyncio.sleep(self.orderCoolDown)
+            
+            # 重新执行交易逻辑
+            await self.runTrade()
+            
+        except Exception as e:
+            logger.error(f"{self.symbolName}处理订单成交事件时发生错误: {e}")
+            # 如果出错，尝试网络重连
+            await self.networkHelper()
 
     #更新余额
     async def updateBalance(self,balance:float):
         self.balance = balance
-        # logger.info(f"{self.symbolName}当前余额更新为{balance}")
 
     #更新最新价格
     async def updateLastPrice(self,lastPrice:float):
         if self.lastPrice != lastPrice:
-            # logger.info(f"{self.symbolName}最新价格更新为{lastPrice}")
             self.lastPrice = lastPrice
         #当没有持仓且价格超过最新买单价一定范围后重新挂买单
         if self.lastBuyPrice != 0.0:
             # 当没有持仓且价格超过最新买单价一定范围时重新挂买单
             if await tradeUtil.positionMarginSize(self.position,self.symbolName) == 0 and lastPrice > self.lastBuyPrice * (1 + self.baseSpread):
                 logger.info(f"{self.symbolName}无持仓且最新价格{lastPrice}超过最新买单价{self.lastBuyPrice}*(1+{self.baseSpread})，重新挂买单")
-                # await self.cancelAllOrder()
                 await self.runTrade()
             
 
     #更新持仓
     async def updatePosition(self,position):
         self.position = position
-        # logger.info(f"{self.symbolName}当前持仓更新: {self.position}")
-        # tempRatio = self.nowStockRadio
         marginSize = await tradeUtil.positionMarginSize(self.position,self.symbolName)
         ratio = marginSize / (self.balance+marginSize)
         if self.nowStockRadio != ratio:
             self.nowStockRadio = ratio
-            # 当持仓比例更新时，取消所有订单并重新挂单
-            # logger.info(f"{self.symbolName}当前持仓比例更新为{ratio}，取消所有订单并重新挂单")
             logger.info(f"{self.symbolName}当前持仓比例更新为{ratio}({ratio*100}%)")
-            # await self.cancelAllOrder()
-            # await self.runTrade()
-            # return
-        if ratio == 0 and len(self.openOrders) == 0:
-            logger.info(f"{self.symbolName}当前持仓比例为0，重新挂单")
-            await self.runTrade()
 
     #更新下单数量
     async def updateOrderAmount(self,orderAmount:float):
@@ -149,39 +169,12 @@ class TradeManager:
     async def updateOrders(self,orders):
         async with self._update_lock:  # 使用锁保护
             oldOrderInfo = []
-            # logger.info(f"有{len(self.openOrders)}个未成交订单")
             for order in self.openOrders:
                 oldOrderInfo.append({'id':order['id'],'side':order['side']})
-            logger.info(f"{self.symbolName}未成交订单旧信息: {oldOrderInfo}")
 
-            # 添加新订单信息日志
-            # logger.info(f"{self.symbolName}接收到{len(orders)}个新订单")
-            
             self.openOrders = orders
             if await tradeUtil.checkOpenOrder(self.openOrders):
                 self.checkOrder = await tradeUtil.checkOpenOrder(self.openOrders)
-            
-            logger.info(f"{self.symbolName}订单更新完成，当前有{len(self.openOrders)}个未成交订单")
-            await self.runTrade()
-
-            # #检查是否有订单被成交
-            # hasOrderFinish = True
-            # for oldOrder in oldOrderInfo:
-            #     for newOrder in self.openOrders:
-            #         if oldOrder['id'] == newOrder['id']:
-            #             hasOrderFinish = False
-            #             break
-            #         else:
-            #             hasOrderFinish = True
-            #             break
-
-            # if hasOrderFinish:
-            #     logger.info(f"{self.symbolName}有订单被成交，取消所有订单并重新挂单")
-            #     # await self.cancelAllOrder()
-            #     await self.runTrade()
-
-        # logger.info(f"{self.symbolName}未成交订单更新: {self.openOrders}")
-        # logger.info(f"{self.symbolName}未成交订单数量: {len(self.openOrders)}")
 
 
     #计算下单数量
@@ -230,7 +223,6 @@ class TradeManager:
         if amount < self.minOrderAmount:
             logger.warning(f"订单数量不能小于最小订单数量{self.minOrderAmount}，已设置为该交易对的最小订单数量")
             amount = self.minOrderAmount
-        # logger.info(f"{self.symbolName}下单数量: {amount},下单价格: {price}")
         try:
             order = await self.wsExchange.createOrder(self.symbolName, "limit",side,amount, price,{"reduceOnly":reduceOnly})
         except Exception as e:
@@ -255,26 +247,83 @@ class TradeManager:
 
     #运行流程
     async def runTrade(self):
-        if await tradeUtil.checkOpenOrder(self.openOrders):
-            logger.info(f"{self.symbolName}当前未成交订单数量为2，且1个买单和1个卖单，跳过挂单")
-            return
-        
-        if len(self.openOrders) != 0:
-            logger.info(f"{self.symbolName}当前未成交订单数量不是2，或不是1个买单和1个卖单，继续挂单")
-            try:
-                await self.cancelAllOrder()
-            except Exception as e:
-                logger.error(f"{self.symbolName}取消全部订单失败: {e}")
-
         try:
-            buyPrice,sellPrice = await self.calculateOrderPrice()
-            orderBuy = self.placeOrder(self.orderAmount,buyPrice,"buy",False)
-            if self.nowStockRadio != 0:
-                orderSell = self.placeOrder(self.orderAmount,sellPrice,"sell",True)
-                await asyncio.gather(orderBuy,orderSell)
-            else:
-                await orderBuy
-        except Exception as e:
-            logger.error(f"{self.symbolName}下单失败: {e}")
+            if await tradeUtil.checkOpenOrder(self.openOrders):
+                logger.info(f"{self.symbolName}当前未成交订单数量为2，且1个买单和1个卖单，跳过挂单")
+                return
+            
+            if len(self.openOrders) != 0:
+                logger.info(f"{self.symbolName}当前未成交订单数量不是2，或不是1个买单和1个卖单，继续挂单")
+                try:
+                    await self.cancelAllOrder()
+                except Exception as e:
+                    logger.error(f"{self.symbolName}取消全部订单失败: {e}")
 
-    
+            try:
+                buyPrice,sellPrice = await self.calculateOrderPrice()
+                orderBuy = self.placeOrder(self.orderAmount,buyPrice,"buy",False)
+                orderSell = None
+                if self.nowStockRadio != 0:
+                    orderSell = self.placeOrder(self.orderAmount,sellPrice,"sell",True)
+                    b,s = await asyncio.gather(orderBuy,orderSell)
+                    if self.websocketManager and b and s:
+                        await self.websocketManager.runOpenOrderWatch(b,s)
+                else:
+                    b = await orderBuy
+                    if self.websocketManager and b:
+                        await self.websocketManager.runOpenOrderWatch(b)
+
+            except Exception as e:
+                logger.error(f"{self.symbolName}下单失败: {e}")
+                
+        except Exception as e:
+            logger.error(f"{self.symbolName}运行交易流程时发生错误: {e}")
+
+    #网络重连函数
+    async def networkHelper(self):
+        if not self.networkError:
+            self.networkError = True
+            while self.networkError:
+                try:
+                    await self.runTrade()
+                except Exception as e:
+                    logger.error(f"{self.symbolName}发生错误，5s后重试: {e}")
+                    await asyncio.sleep(5)
+                else:
+                    logger.info(f"{self.symbolName}恢复运行成功")
+                    self.networkError = False
+        else:
+            logger.info(f"{self.symbolName}已经在处理网络错误中")
+
+    #使用REST请求更新订单
+    async def getAllOrdersREST(self):
+        try:
+            orders = await self.wsExchange.fetchOpenOrders(self.symbolName)
+        except Exception as e:
+            logger.error(f"{self.symbolName}获取订单失败: {e}")
+            return None
+        else:
+            logger.info(f"{self.symbolName}获取订单成功: {orders}")
+            return orders
+
+    #使用REST请求更新价格
+    async def updatePriceREST(self):
+        try:
+            ticker = await self.wsExchange.fetchTicker(self.symbolName)
+        except Exception as e:
+            logger.error(f"{self.symbolName}获取价格失败: {e}")
+            return None
+        else:
+            logger.info(f"{self.symbolName}获取价格成功: {ticker}")
+            return ticker
+
+    #使用REST请求更新持仓
+    async def updatePositionREST(self):
+        try:
+            position = await self.wsExchange.fetchPosition(self.symbolName)
+        except Exception as e:
+            logger.error(f"{self.symbolName}获取持仓失败: {e}")
+            return None
+        else:
+            logger.info(f"{self.symbolName}获取持仓成功: {position}")
+            return position
