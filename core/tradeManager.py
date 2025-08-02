@@ -227,7 +227,22 @@ class TradeManager:
     async def updatePosition(self,position):
         self.position = position
         marginSize = await tradeUtil.positionMarginSize(self.position,self.symbolName)
-        ratio = marginSize / (self.balance+marginSize)
+        
+        # 添加边界检查防止除零错误
+        total_value = self.balance + marginSize
+        if total_value <= 0:
+            logger.warning(f"{self.symbolName}总资产为0或负数(余额:{self.balance}, 保证金:{marginSize})，持仓比例设为0")
+            ratio = 0.0
+        else:
+            try:
+                ratio = marginSize / total_value
+            except ZeroDivisionError:
+                logger.error(f"{self.symbolName}计算持仓比例时发生除零错误，持仓比例设为0")
+                ratio = 0.0
+            except Exception as e:
+                logger.error(f"{self.symbolName}计算持仓比例时发生错误: {e}，持仓比例设为0")
+                ratio = 0.0
+        
         if self.nowStockRadio != ratio:
             self.nowStockRadio = ratio
             logger.info(f"{self.symbolName}当前持仓比例更新为{ratio}({ratio*100}%)")
@@ -235,7 +250,24 @@ class TradeManager:
     #更新下单数量
     async def updateOrderAmount(self,orderAmount:float=None):
         if orderAmount is None:
-            orderAmount = self.equity/self.lastPrice*self.orderAmountRatio
+            # 添加边界检查防止除零错误
+            if self.lastPrice is None or self.lastPrice <= 0:
+                logger.warning(f"{self.symbolName}价格信息无效({self.lastPrice})，使用最小订单数量")
+                orderAmount = self.minOrderAmount
+            elif self.equity is None or self.equity <= 0:
+                logger.warning(f"{self.symbolName}账户权益无效({self.equity})，使用最小订单数量")
+                orderAmount = self.minOrderAmount
+            else:
+                try:
+                    orderAmount = self.equity/self.lastPrice*self.orderAmountRatio
+                except ZeroDivisionError:
+                    logger.error(f"{self.symbolName}计算订单数量时发生除零错误，使用最小订单数量")
+                    orderAmount = self.minOrderAmount
+                except Exception as e:
+                    logger.error(f"{self.symbolName}计算订单数量时发生错误: {e}，使用最小订单数量")
+                    orderAmount = self.minOrderAmount
+        
+        # 确保订单数量不小于最小值
         if orderAmount < self.minOrderAmount:
             logger.warning(f"订单数量不能小于最小订单数量{self.minOrderAmount}，已设置为该交易对的最小订单数量")
             self.orderAmount = self.minOrderAmount
