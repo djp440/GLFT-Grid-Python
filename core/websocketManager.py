@@ -107,6 +107,10 @@ class WebSocketManager:
         self.openOrders = order_ids
         self.inWatchOpenOrder = True
         logger.info(f"接收到{self.symbolName}订单监控需求: {order_ids}")
+    
+    async def isOrderWatchActive(self):
+        """检查订单监听是否活跃"""
+        return self.inWatchOpenOrder and len(self.openOrders) > 0
 
     async def watchOpenOrder(self):
         logger.info(f"{self.symbolName}未成交订单获取websocket模块启动")
@@ -152,7 +156,13 @@ class WebSocketManager:
                         self.inWatchOpenOrder = False
                         self.openOrders = []
                         # 然后通知tradeManager进行后续处理
-                        await self.tradeManager.onOrderFilled(filled_orders)
+                        try:
+                            await self.tradeManager.onOrderFilled(filled_orders)
+                        except Exception as e:
+                            logger.error(f"{self.symbolName}通知TradeManager处理订单成交时发生错误: {e}")
+                            # 如果处理失败，重新启动监听以防止程序卡死
+                            await asyncio.sleep(1)
+                            continue
                         
                 except ccxt.NetworkError as e:
                     logger.error(f"{self.symbolName}订单获取网络错误: {e}")

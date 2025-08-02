@@ -107,7 +107,9 @@ class TradeManager:
         处理订单成交后的逻辑
         """
         if filled_orders is None:
-            logger.info(f"{self.symbolName}处理订单成交事件，成交订单数量: {len(filled_orders)}")
+            filled_orders = []
+        
+        logger.info(f"{self.symbolName}处理订单成交事件，成交订单数量: {len(filled_orders)}")
 
         # 更新订单状态和持仓信息
         try:
@@ -137,6 +139,36 @@ class TradeManager:
             # 如果出错，尝试网络重连
             await self.networkHelper()
 
+    # 检查和恢复订单监听状态
+    async def checkAndRecoverOrderWatch(self):
+        """
+        检查订单监听状态并在需要时恢复
+        """
+        try:
+            if self.websocketManager:
+                # 检查是否有活跃的订单监听
+                if not await self.websocketManager.isOrderWatchActive():
+                    logger.warning(f"{self.symbolName}订单监听已断开，尝试恢复")
+                    # 获取当前未成交订单
+                    allOrder = await self.wsExchange.fetchOpenOrders(self.symbolName)
+                    targetOrder = await tradeUtil.openOrderFilter(allOrder, self.symbolName)
+                    
+                    if len(targetOrder) > 0:
+                        # 重新启动订单监听
+                        if len(targetOrder) == 2:
+                            await self.websocketManager.runOpenOrderWatch(targetOrder[0], targetOrder[1])
+                        else:
+                            await self.websocketManager.runOpenOrderWatch(targetOrder[0])
+                        logger.info(f"{self.symbolName}订单监听恢复成功")
+                    else:
+                        logger.info(f"{self.symbolName}当前无未成交订单，无需恢复监听")
+                        # 重新执行交易逻辑以创建新订单
+                        await self.runTrade()
+        except Exception as e:
+            logger.error(f"{self.symbolName}检查和恢复订单监听时发生错误: {e}")
+            # 如果恢复失败，触发网络重连
+            await self.networkHelper()
+
     #更新余额
     async def updateBalance(self,balance:float,equity:float):
         self.balance = balance
@@ -153,6 +185,14 @@ class TradeManager:
             if await tradeUtil.positionMarginSize(self.position,self.symbolName) == 0 and lastPrice > self.lastBuyPrice * (1 + self.baseSpread):
                 logger.info(f"{self.symbolName}无持仓且最新价格{lastPrice}超过最新买单价{self.lastBuyPrice}*(1+{self.baseSpread})，重新挂买单")
                 await self.runTrade()
+        
+        # 定期检查订单监听状态（每100次价格更新检查一次）
+        if not hasattr(self, '_price_update_counter'):
+            self._price_update_counter = 0
+        self._price_update_counter += 1
+        
+        if self._price_update_counter % 100 == 0:
+            await self.checkAndRecoverOrderWatch()
             
 
     #更新持仓
