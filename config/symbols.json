@@ -1,0 +1,34 @@
+{
+  "symbols": [
+    {
+      "symbol": "SOL/USDT:USDT",
+      "enabled": true,
+      "baseSpread": 0.001,
+      "minSpread": 0.0008,
+      "maxSpread": 0.003,
+      "orderCoolDown": 0.1,
+      "maxStockRadio": 0.25,
+      "orderAmountRatio": 0.05
+    },
+    {
+      "symbol": "BTC/USDT:USDT",
+      "enabled": true,
+      "baseSpread": 0.001,
+      "minSpread": 0.0008,
+      "maxSpread": 0.003,
+      "orderCoolDown": 0.1,
+      "maxStockRadio": 0.25,
+      "orderAmountRatio": 0.05
+    },
+    {
+      "symbol": "ETH/USDT:USDT",
+      "enabled": true,
+      "baseSpread": 0.001,
+      "minSpread": 0.0008,
+      "maxSpread": 0.003,
+      "orderCoolDown": 0.1,
+      "maxStockRadio": 0.25,
+      "orderAmountRatio": 0.05
+    }
+  ]
+}
