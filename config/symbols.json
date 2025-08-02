@@ -1,16 +1,6 @@
 {
   "symbols": [
     {
-      "symbol": "SOL/USDC:USDC",
-      "enabled": true,
-      "baseSpread": 0.008,
-      "minSpread": 0.0005,
-      "maxSpread": 0.005,
-      "orderCoolDown": 0.1,
-      "maxStockRadio": 0.25,
-      "orderAmountRatio": 0.05
-    },
-    {
       "symbol": "BTC/USDC:USDC",
       "enabled": true,
       "baseSpread": 0.008,
