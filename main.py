@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 import signal
 import sys
 import json
+from core.chartManager import chart_manager
+from core.dataRecorder import data_recorder
 
 load_dotenv()
 apiKey = os.getenv("apiKey")
@@ -176,6 +178,14 @@ async def cleanup_resources():
     """清理所有资源"""
     global symbol_managers, symbol_tasks
     
+    # 停止图表管理器
+    try:
+        chart_manager.stop_charts()
+        data_recorder.stop()
+        logger.info("图表管理器和数据记录器已停止")
+    except Exception as e:
+        logger.error(f"停止图表管理器时发生错误: {e}")
+    
     # 清理所有交易对的资源
     for symbolName in list(symbol_managers.keys()):
         await cleanup_symbol_resources(symbolName)
@@ -236,13 +246,17 @@ async def main_async():
     global shutdown_event
     shutdown_event = asyncio.Event()
     
-    # 从配置文件加载交易对
-    symbol_configs = load_symbols_config()
-    symbol_names = [config['symbol'] for config in symbol_configs]
-    
-    logger.info(f"准备启动多交易对网格交易，交易对: {symbol_names}")
-    
     try:
+        # 启动图表管理器
+        logger.info("启动实时监控图表...")
+        chart_manager.start_charts()
+        
+        # 从配置文件加载交易对
+        symbol_configs = load_symbols_config()
+        symbol_names = [config['symbol'] for config in symbol_configs]
+        
+        logger.info(f"准备启动多交易对网格交易，交易对: {symbol_names}")
+        
         await runMultipleSymbols(symbol_configs)
     except KeyboardInterrupt:
         logger.info("程序被手动中断")

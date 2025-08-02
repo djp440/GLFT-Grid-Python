@@ -5,3 +5,5 @@ pandas
 matplotlib
 backtrader
 python-dotenv
+numpy
+tkinter

@@ -4,6 +4,7 @@ from turtle import up
 from util.sLogger import logger
 from util import tradeUtil
 import asyncio
+from core.dataRecorder import data_recorder
 
 class TradeManager:
     def __init__(self,  symbolName: str,wsExchange,baseSpread=0.001,minSpread=0.0008,maxSpread=0.003,orderCoolDown=0.1,maxStockRadio=0.25,orderAmountRatio=0.05):
@@ -111,6 +112,27 @@ class TradeManager:
         
         logger.info(f"{self.symbolName}处理订单成交事件，成交订单数量: {len(filled_orders)}")
 
+        # 记录成交订单数据
+        try:
+            for order in filled_orders:
+                if order and 'filled' in order and order['filled'] > 0:
+                    # 计算手续费（如果订单中没有手续费信息，使用估算值）
+                    fee = order.get('fee', {}).get('cost', 0)
+                    if fee == 0 and 'cost' in order:
+                        # 估算手续费为成交金额的0.1%
+                        fee = order['cost'] * 0.001
+                    
+                    await data_recorder.record_trade(
+                        symbol=self.symbolName,
+                        side=order['side'],
+                        amount=order['filled'],
+                        price=order['average'] or order['price'],
+                        fee=fee,
+                        order_id=order['id']
+                    )
+        except Exception as e:
+            logger.error(f"{self.symbolName}记录交易数据时发生错误: {e}")
+
         # 更新订单状态和持仓信息
         try:
             # 重新获取最新的订单信息
@@ -174,6 +196,12 @@ class TradeManager:
         self.balance = balance
         self.equity = equity
         logger.info(f"{self.symbolName}当前余额: {self.balance},当前权益: {self.equity}")
+        
+        # 更新数据记录器中的权益信息
+        try:
+            await data_recorder.update_equity(equity)
+        except Exception as e:
+            logger.error(f"{self.symbolName}更新权益数据时发生错误: {e}")
 
     #更新最新价格
     async def updateLastPrice(self,lastPrice:float):
