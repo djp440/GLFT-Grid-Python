@@ -3,11 +3,21 @@
     {
       "symbol": "BTC/USDT:USDT",
       "enabled": true,
-      "baseSpread": 0.001,
+      "baseSpread": 0.008,
       "minSpread": 0.0005,
-      "maxSpread": 0.008,
+      "maxSpread": 0.003,
       "orderCoolDown": 0.1,
-      "maxStockRadio": 0.5,
+      "maxStockRadio": 0.25,
+      "orderAmountRatio": 0.05
+    },
+    {
+      "symbol": "ETH/USDT:USDT",
+      "enabled": true,
+      "baseSpread": 0.008,
+      "minSpread": 0.0005,
+      "maxSpread": 0.003,
+      "orderCoolDown": 0.1,
+      "maxStockRadio": 0.25,
       "orderAmountRatio": 0.05
     }
   ]
