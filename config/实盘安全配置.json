@@ -1,0 +1,37 @@
+{
+  "description": "实盘测试推荐的安全配置参数",
+  "risk_level": "conservative",
+  "symbols": [
+    {
+      "symbol": "BTC/USDT:USDT",
+      "enabled": true,
+      "baseSpread": 0.002,
+      "minSpread": 0.001,
+      "maxSpread": 0.008,
+      "orderCoolDown": 0.5,
+      "maxStockRadio": 0.25,
+      "orderAmountRatio": 0.02,
+      "description": "保守配置：更大价差，更低持仓比例，更小订单金额"
+    }
+  ],
+  "safety_notes": {
+    "maxStockRadio": "最大持仓比例降低到25%，减少单边行情风险",
+    "orderAmountRatio": "单次下单比例降低到2%，控制单次风险",
+    "baseSpread": "基础价差提高到0.2%，增加安全边际",
+    "orderCoolDown": "下单冷却时间增加到0.5秒，避免频繁交易",
+    "maxSpread": "最大价差提高到0.8%，在高持仓时提供更大缓冲"
+  },
+  "usage_instructions": [
+    "1. 将此配置复制到 symbols.json 文件中",
+    "2. 确保 .env 文件中 sandbox=False（实盘模式）",
+    "3. 建议先用小额资金测试24小时",
+    "4. 密切监控程序运行状态和账户变化",
+    "5. 设定明确的止损条件（如最大回撤10%）"
+  ],
+  "emergency_procedures": {
+    "stop_trading": "按 Ctrl+C 停止程序",
+    "cancel_orders": "程序会自动取消所有未成交订单",
+    "manual_intervention": "如需手动干预，可直接在交易所界面操作",
+    "data_backup": "交易数据自动保存在 logs 目录中"
+  }
+}

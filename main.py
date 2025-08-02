@@ -13,13 +13,31 @@ from core.chartManager import chart_manager
 from core.dataRecorder import data_recorder
 
 load_dotenv()
+# 读取沙盒环境配置
 apiKey = os.getenv("apiKey")
 secret = os.getenv("secret")
 password = os.getenv("password")
-okx_apiKey = os.getenv("okx_apiKey")
-okx_secret = os.getenv("okx_secret")
-okx_password = os.getenv("okx_password")
+# 读取实盘环境配置
+prod_apiKey = os.getenv("prod_apiKey")
+prod_secret = os.getenv("prod_secret")
+prod_password = os.getenv("prod_password")
 sandbox = os.getenv("sandbox")
+
+# 根据sandbox参数选择API配置
+if sandbox == "False":
+    # 实盘模式，使用实盘API配置
+    current_apiKey = prod_apiKey
+    current_secret = prod_secret
+    current_password = prod_password
+    is_sandbox = False
+    logger.info("使用实盘API配置")
+else:
+    # 沙盒模式，使用沙盒API配置
+    current_apiKey = apiKey
+    current_secret = secret
+    current_password = password
+    is_sandbox = True
+    logger.info("使用沙盒API配置")
 
 # 全局变量
 exchangeWS = None
@@ -43,7 +61,7 @@ def load_symbols_config():
     except FileNotFoundError:
         logger.warning("配置文件不存在，使用默认配置")
         return [{
-            "symbol": "SOL/USDT:USDT",
+            "symbol": "BTC/USDT:USDT",
             "enabled": True,
             "baseSpread": 0.001,
             "minSpread": 0.0008,
@@ -55,7 +73,7 @@ def load_symbols_config():
     except Exception as e:
         logger.error(f"加载配置文件失败: {e}，使用默认配置")
         return [{
-            "symbol": "SOL/USDT:USDT",
+            "symbol": "BTC/USDT:USDT",
             "enabled": True,
             "baseSpread": 0.001,
             "minSpread": 0.0008,
@@ -74,13 +92,13 @@ async def runWebsocketTask(symbol_config: dict):
     try:
         # 为每个交易对创建独立的交易所连接
         exchangeBitget = ccxt.pro.bitget({
-            'apiKey': apiKey,
-            'secret': secret,
-            'password': password,
+            'apiKey': current_apiKey,
+            'secret': current_secret,
+            'password': current_password,
             'options': {
                 'defaultType': 'swap',
             },
-            'sandbox': sandbox == "True"
+            'sandbox': is_sandbox
         })
         
         logger.info(f"开始初始化交易对 {symbolName}")
