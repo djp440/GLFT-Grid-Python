@@ -22,6 +22,8 @@ prod_apiKey = os.getenv("prod_apiKey")
 prod_secret = os.getenv("prod_secret")
 prod_password = os.getenv("prod_password")
 sandbox = os.getenv("sandbox")
+# 读取图表开关配置
+enable_charts = os.getenv("enable_charts", "True").lower() == "true"
 
 # 根据sandbox参数选择API配置
 if sandbox == "False":
@@ -196,13 +198,15 @@ async def cleanup_resources():
     """清理所有资源"""
     global symbol_managers, symbol_tasks
     
-    # 停止图表管理器
+    # 停止图表管理器（如果启用了图表功能）
     try:
-        chart_manager.stop_charts()
+        if enable_charts:
+            chart_manager.stop_charts()
+            logger.info("图表管理器已停止")
         data_recorder.stop()
-        logger.info("图表管理器和数据记录器已停止")
+        logger.info("数据记录器已停止")
     except Exception as e:
-        logger.error(f"停止图表管理器时发生错误: {e}")
+        logger.error(f"停止图表管理器或数据记录器时发生错误: {e}")
     
     # 清理所有交易对的资源
     for symbolName in list(symbol_managers.keys()):
@@ -265,9 +269,12 @@ async def main_async():
     shutdown_event = asyncio.Event()
     
     try:
-        # 启动图表管理器
-        logger.info("启动实时监控图表...")
-        chart_manager.start_charts()
+        # 根据配置决定是否启动图表管理器
+        if enable_charts:
+            logger.info("启动实时监控图表...")
+            chart_manager.start_charts()
+        else:
+            logger.info("图表功能已禁用，跳过图表启动")
         
         # 从配置文件加载交易对
         symbol_configs = load_symbols_config()

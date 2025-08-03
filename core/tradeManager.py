@@ -497,36 +497,3 @@ class TradeManager:
         except Exception as e:
             logger.error(f"{self.symbolName}刷新状态信息失败: {e}")
             raise e
-
-    #使用REST请求更新订单
-    async def getAllOrdersREST(self):
-        try:
-            orders = await self.wsExchange.fetchOpenOrders(self.symbolName)
-        except Exception as e:
-            logger.error(f"{self.symbolName}获取订单失败: {e}")
-            return None
-        else:
-            logger.info(f"{self.symbolName}获取订单成功: {orders}")
-            return orders
-
-    #使用REST请求更新价格
-    async def updatePriceREST(self):
-        try:
-            ticker = await self.wsExchange.fetchTicker(self.symbolName)
-        except Exception as e:
-            logger.error(f"{self.symbolName}获取价格失败: {e}")
-            return None
-        else:
-            logger.info(f"{self.symbolName}获取价格成功: {ticker}")
-            return ticker
-
-    #使用REST请求更新持仓
-    async def updatePositionREST(self):
-        try:
-            position = await self.wsExchange.fetchPosition(self.symbolName)
-        except Exception as e:
-            logger.error(f"{self.symbolName}获取持仓失败: {e}")
-            return None
-        else:
-            logger.info(f"{self.symbolName}获取持仓成功: {position}")
-            return position

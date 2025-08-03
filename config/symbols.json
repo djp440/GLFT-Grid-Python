@@ -1,7 +1,7 @@
 {
   "symbols": [
     {
-      "symbol": "ETH/USDT:USDT",
+      "symbol": "SETH/SUSDT:SUSDT",
       "enabled": true,
       "baseSpread": 0.008,
       "minSpread": 0.0005,
@@ -11,7 +11,7 @@
       "orderAmountRatio": 0.05
     },
     {
-      "symbol": "SUI/USDT:USDT",
+      "symbol": "SBTC/SUSDT:SUSDT",
       "enabled": true,
       "baseSpread": 0.008,
       "minSpread": 0.0005,
