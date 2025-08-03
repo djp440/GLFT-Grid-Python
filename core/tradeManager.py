@@ -7,7 +7,7 @@ import asyncio
 from core.dataRecorder import data_recorder
 
 class TradeManager:
-    def __init__(self,  symbolName: str,wsExchange,baseSpread=0.001,minSpread=0.0008,maxSpread=0.003,orderCoolDown=0.1,maxStockRadio=0.25,orderAmountRatio=0.05):
+    def __init__(self,  symbolName: str,wsExchange,baseSpread=0.001,minSpread=0.0008,maxSpread=0.003,orderCoolDown=0.1,maxStockRadio=0.25,orderAmountRatio=0.05,coin='USDT'):
         self.symbolName = symbolName
         self.wsExchange = wsExchange
         #价差需要除以2，因为是双边应用
@@ -33,6 +33,7 @@ class TradeManager:
         self._update_lock = asyncio.Lock()  # 添加锁
         self.networkError = False
         self.websocketManager = None
+        self.coin = coin
     
     #创建完对象后必须调用这个函数
     async def initSymbolInfo(self):
@@ -40,7 +41,8 @@ class TradeManager:
         #初始化余额
         try:
             balance = await e.fetchBalance()
-            await self.updateBalance(balance['USDT']['free'],balance['USDT']['total'])
+            logger.info(f"{self.symbolName}当前余额: {balance}")
+            await self.updateBalance(balance[self.coin]['free'],balance[self.coin]['total'])
         except Exception as e:
             logger.error(f"初始化获取余额信息失败，终止程序: {e}")
             sys.exit(1)
@@ -146,7 +148,7 @@ class TradeManager:
             
             # 重新获取余额信息
             balance = await self.wsExchange.fetchBalance()
-            await self.updateBalance(balance['USDT']['free'],balance['USDT']['total'])
+            await self.updateBalance(balance[self.coin]['free'],balance[self.coin]['total'])
             
             logger.info(f"{self.symbolName}订单成交后状态更新完成")
             
@@ -334,7 +336,7 @@ class TradeManager:
             logger.warning(f"订单数量不能小于最小订单数量{self.minOrderAmount}，已设置为该交易对的最小订单数量")
             amount = self.minOrderAmount
         try:
-            order = await self.wsExchange.createOrder(self.symbolName, "limit",side,amount, price,{"reduceOnly":reduceOnly})
+            order = await self.wsExchange.createOrder(self.symbolName, "limit",side,amount, price,{"reduceOnly":reduceOnly,"hedged": True})
         except Exception as e:
             logger.error(f"{self.symbolName}下单失败: {e}")
             return None
@@ -477,7 +479,7 @@ class TradeManager:
         try:
             # 重新获取余额信息
             balance = await self.wsExchange.fetchBalance()
-            await self.updateBalance(balance['USDT']['free'], balance['USDT']['total'])
+            await self.updateBalance(balance[self.coin]['free'], balance[self.coin]['total'])
             
             # 重新获取订单信息
             allOrder = await self.wsExchange.fetchOpenOrders(self.symbolName)

@@ -90,6 +90,8 @@ async def runWebsocketTask(symbol_config: dict):
     global symbol_tasks, symbol_managers
     
     symbolName = symbol_config['symbol']
+    level = symbol_config['level']
+    coin = symbol_config['coin']
     
     try:
         # 为每个交易对创建独立的交易所连接
@@ -102,9 +104,13 @@ async def runWebsocketTask(symbol_config: dict):
             },
             'sandbox': is_sandbox
         })
-        
         logger.info(f"开始初始化交易对 {symbolName}")
-        
+        await exchangeBitget.set_position_mode(True, symbolName, {'productType': 'USDT-FUTURES'})
+        logger.info(f"交易对 {symbolName} 持仓模式设置为双向") 
+        await exchangeBitget.set_leverage(level, symbolName, {'productType': 'USDT-FUTURES'})
+        logger.info(f"交易对 {symbolName} 杠杆设置为 {level}")
+        exchangeBitget.create_order
+
         # 使用配置参数创建交易管理器
         tm = core.tradeManager.TradeManager(
             symbolName, 
@@ -114,7 +120,8 @@ async def runWebsocketTask(symbol_config: dict):
             maxSpread=symbol_config.get('maxSpread', 0.003),
             orderCoolDown=symbol_config.get('orderCoolDown', 0.1),
             maxStockRadio=symbol_config.get('maxStockRadio', 0.25),
-            orderAmountRatio=symbol_config.get('orderAmountRatio', 0.05)
+            orderAmountRatio=symbol_config.get('orderAmountRatio', 0.05),
+            # coin=coin
         )
         await tm.initSymbolInfo()
         wm = core.websocketManager.WebSocketManager(symbolName, exchangeBitget, tm)
