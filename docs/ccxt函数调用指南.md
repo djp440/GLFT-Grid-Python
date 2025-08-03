@@ -4,6 +4,8 @@
 positions = await exchange.fetch_positions([symbolName], params={'productType': 'USDT-FUTURES'})
 ```
 
+如果要使用 websocket 监听方法则将函数名替换为`watch_positions`即可，参数和返回值不变
+
 ## 注意事项
 
 1. 就算只查询一个交易对，也必须将交易对的名称用[]括起来
@@ -26,12 +28,12 @@ positions = await exchange.fetch_positions([symbolName], params={'productType': 
 
 ```
 order = await exchange.createOrder(
-    symbol: str,
-    type: OrderType,
-    side: OrderSide,
-    amount: float,
-    price: Num = None,
-    {
+    symbol=str,
+    type=OrderType,
+    side=OrderSide,
+    amount=amount,
+    price=price,
+    params={
     "reduceOnly": reduceOnly,
     "hedged": True
     }
@@ -59,3 +61,56 @@ order = await exchange.createOrder(
 ```
 {'info': {'clientOid': '1335844108068626432', 'orderId': '1335844108056043522'}, 'id': '1335844108056043522', 'clientOrderId': '1335844108068626432', 'timestamp': None, 'datetime': None, 'lastTradeTimestamp': None, 'lastUpdateTimestamp': None, 'symbol': 'SBTC/SUSDT:SUSDT', 'type': None, 'side': None, 'price': None, 'amount': None, 'cost': None, 'average': None, 'filled': None, 'remaining': None, 'timeInForce': None, 'postOnly': None, 'reduceOnly': None, 'triggerPrice': None, 'takeProfitPrice': None, 'stopLossPrice': None, 'status': None, 'fee': None, 'trades': [], 'fees': [], 'stopPrice': None}
 ```
+
+# 获取 K 线数据
+
+```
+ohlcv_data = await exchange.fetch_ohlcv(
+            symbol=symbol,
+            timeframe='1m',
+            limit=20
+        )
+```
+
+若要使用 websocket 监听方法则将函数名替换为`watch_ohlcv`即可，参数和返回值不变
+
+## 注意事项
+
+1. 时间框架可以设置为以下几种类型
+
+- 1m：1 分钟
+- 3m：3 分钟
+- 5m：5 分钟
+- 15m：15 分钟
+- 30m：30 分钟
+- 1h：1 小时
+- 2h：2 小时
+- 4h：4 小时
+- 6h：6 小时
+- 8h：8 小时
+- 12h：12 小时
+- 1d：1 天
+- 3d：3 天
+- 1w：1 周
+- 1M：1 月
+
+2. limit 代表获取的 K 线数据条数，最大为 100 条。
+
+## 返回结构体
+
+```
+[[1754215200000, 113612.4, 113612.4, 113612.3, 113612.4, 2.132], [1754215260000, 113612.4, 113634.2, 113612.4, 113634.1, 5.24], [1754215320000, 113634.1, 113640.5, 113634.1, 113640.3, 0.89], [1754215380000, 113640.3, 113660.5, 113640.3, 113660.4, 1.692], [1754215440000, 113660.4, 113660.7, 113653.6, 113653.6, 3.588], [1754215500000, 113653.6, 113658.3, 113653.6, 113658.3, 5.336], [1754215560000, 113658.3, 113658.3, 113652.2, 113652.2, 3.07], [1754215620000, 113652.2, 113652.5, 113649.9, 113649.9, 3.344], [1754215680000, 113649.9, 113658.9, 113649.9, 113652.7, 6.268], [1754215740000, 113652.7, 113660.0, 113652.7, 113660.0, 2.594], [1754215800000, 113660.0, 113700.0, 113659.9, 113699.1, 3.158], [1754215860000, 113699.1, 113709.0, 113699.1, 113709.0, 1.764], [1754215920000, 113709.0, 113709.0, 113692.8, 113697.2, 1.902], [1754215980000, 113697.2, 113706.0, 113697.1, 113705.8, 1.054], [1754216040000, 113705.8, 113726.0, 113705.8, 113726.0, 0.702], [1754216100000, 113726.0, 113735.8, 113701.5, 113701.5, 22.752], [1754216160000, 113701.5, 113701.8, 113701.5, 113701.5, 0.798], [1754216220000, 113701.5, 113719.2, 113700.7, 113719.2, 4.108], [1754216280000, 113719.2, 113720.0, 113710.1, 113710.1, 2.002], [1754216340000, 113710.1, 113710.5, 113710.1, 113710.2, 3.702]]
+```
+
+- 函数会返回一个列表，这个列表里的每一个元素又是另一个列表，代表一根 K 线。
+
+```
+[timestamp, open, high, low, close, volume]
+```
+
+- timestamp: 这根 K 线开始的时间戳 (毫秒)
+- open: 开盘价
+- high: 最高价
+- low: 最低价
+- close: 收盘价
+- volume: 成交量

@@ -7,8 +7,9 @@ import asyncio
 from core.dataRecorder import data_recorder
 import ccxt.pro
 
+
 class TradeManager:
-    def __init__(self,  symbolName: str, wsExchange:ccxt.pro.Exchange, baseSpread=0.001, minSpread=0.0008, maxSpread=0.003, orderCoolDown=0.1, maxStockRadio=0.25, orderAmountRatio=0.05, coin='USDT'):
+    def __init__(self,  symbolName: str, wsExchange: ccxt.pro.Exchange, baseSpread=0.001, minSpread=0.0008, maxSpread=0.003, orderCoolDown=0.1, maxStockRadio=0.25, orderAmountRatio=0.05, coin='USDT'):
         self.symbolName = symbolName
         self.wsExchange = wsExchange
         # 价差需要除以2，因为是双边应用
@@ -126,7 +127,7 @@ class TradeManager:
                     fee = order.get('fee', {}).get('cost', 0)
                     if fee == 0 and 'cost' in order:
                         # 估算手续费为成交金额的0.1%
-                        fee = order['cost'] * 0.001
+                        fee = order['cost'] * 0.0002
 
                     await data_recorder.record_trade(
                         symbol=self.symbolName,
