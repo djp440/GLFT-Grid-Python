@@ -2,7 +2,6 @@
   "symbols": [
     {
       "symbol": "SETH/SUSDT:SUSDT",
-      "coin":"SUSDT",
       "enabled": true,
       "baseSpread": 0.008,
       "minSpread": 0.0005,
@@ -14,7 +13,6 @@
     },
     {
       "symbol": "SBTC/SUSDT:SUSDT",
-      "coin":"SUSDT",
       "enabled": true,
       "baseSpread": 0.008,
       "minSpread": 0.0005,
