@@ -46,7 +46,7 @@ class TradeManager:
         self.longSize = 0.0     # 做多数量
         self.shortSize = 0.0    # 做空数量
         # 基于成交价的基准价功能
-        self.useTransactionPrice = False  # 是否使用成交价作为基准价的开关
+        self.useTransactionPrice = True  # 是否使用成交价作为基准价的开关
         self.lastTransactionOrderPrice: float = None  # 最近一次成交订单的价格
 
     # 创建完对象后必须调用这个函数
