@@ -151,9 +151,11 @@ class TradeManager:
                     # 更新最近成交订单价格
                     transaction_price = order['average'] or order['price']
                     if transaction_price:
-                        self.lastTransactionOrderPrice = float(transaction_price)
-                        logger.info(f"{self.symbolName}更新最近成交价格: {self.lastTransactionOrderPrice}")
-                    
+                        self.lastTransactionOrderPrice = float(
+                            transaction_price)
+                        logger.info(
+                            f"{self.symbolName}更新最近成交价格: {self.lastTransactionOrderPrice}")
+
                     # 计算手续费（如果订单中没有手续费信息，使用估算值）
                     fee = order.get('fee', {}).get('cost', 0)
                     if fee == 0 and 'cost' in order:
@@ -246,33 +248,33 @@ class TradeManager:
     async def updateLastPrice(self, lastPrice: float):
         if self.lastPrice != lastPrice:
             self.lastPrice = lastPrice
-        
+
         # 初始化价格触发冷却时间
         if not hasattr(self, '_last_price_trigger_time'):
             self._last_price_trigger_time = 0
-        
+
         # 只在单边交易模式（只做多或只做空）且无持仓时才进行追单
         # 双向模式下不需要追单，因为价格两边都能挂单
-        if (self.direction in ['long', 'short'] and 
-            await tradeUtil.positionMarginSize(self.position, self.symbolName) == 0):
-            
+        if (self.direction in ['long', 'short'] and
+                await tradeUtil.positionMarginSize(self.position, self.symbolName) == 0):
+
             # 检查是否有相应的价格记录
             has_price_record = False
             if self.direction == 'long' and self.lastBuyPrice != 0.0:
                 has_price_record = True
             elif self.direction == 'short' and hasattr(self, 'lastSellPrice') and self.lastSellPrice != 0.0:
                 has_price_record = True
-            
+
             if not has_price_record:
                 return
-            
+
             import time
             current_time = time.time()
-            
+
             # 增加冷却机制，避免频繁触发（至少间隔5秒）
             if current_time - self._last_price_trigger_time < 5:
                 return
-            
+
             # 只做多模式：当价格超过最新买单价一定范围时重新挂买单
             # 只做空模式：当价格低于最新卖单价一定范围时重新挂卖单
             should_retrade = False
@@ -280,12 +282,12 @@ class TradeManager:
                 logger.info(
                     f"{self.symbolName}只做多模式，无持仓且最新价格{lastPrice}超过最新买单价{self.lastBuyPrice}*(1+{self.baseSpread})，重新挂买单")
                 should_retrade = True
-            elif (self.direction == 'short' and hasattr(self, 'lastSellPrice') and 
+            elif (self.direction == 'short' and hasattr(self, 'lastSellPrice') and
                   self.lastSellPrice != 0.0 and lastPrice < self.lastSellPrice * (1 - self.baseSpread)):
                 logger.info(
                     f"{self.symbolName}只做空模式，无持仓且最新价格{lastPrice}低于最新卖单价{self.lastSellPrice}*(1-{self.baseSpread})，重新挂卖单")
                 should_retrade = True
-            
+
             if should_retrade:
                 # 计算期望订单，检查是否真的需要重新下单
                 expected_orders = self._calculate_expected_orders()
@@ -303,27 +305,28 @@ class TradeManager:
 
         if self._price_update_counter % 100 == 0:
             await self.checkAndRecoverOrderWatch()
-    
+
     def setUseTransactionPrice(self, enabled: bool):
         """
         设置是否使用成交价作为基准价
-        
+
         Args:
             enabled (bool): True表示启用成交价基准，False表示使用实时价格基准
         """
         self.useTransactionPrice = enabled
         status = "启用" if enabled else "禁用"
         logger.info(f"{self.symbolName}{status}成交价基准功能")
-        
+
         if enabled and self.lastTransactionOrderPrice is not None:
-            logger.info(f"{self.symbolName}当前成交价基准: {self.lastTransactionOrderPrice}")
+            logger.info(
+                f"{self.symbolName}当前成交价基准: {self.lastTransactionOrderPrice}")
         elif enabled:
             logger.warning(f"{self.symbolName}启用成交价基准但暂无成交记录，将在首次成交后生效")
-    
+
     def getTransactionPriceStatus(self):
         """
         获取成交价基准功能的状态信息
-        
+
         Returns:
             dict: 包含功能状态和当前成交价的字典
         """
@@ -399,11 +402,13 @@ class TradeManager:
         else:
             self.orderAmount = orderAmount
             logger.info(f"{self.symbolName}当前下单数量更新为{self.orderAmount}")
+
+        minOrderValue = 5.5
         # 校验订单价值
-        if orderAmount*self.lastPrice < 5:
-            self.orderAmount = 5/self.lastPrice
+        if orderAmount*self.lastPrice < minOrderValue:
+            self.orderAmount = minOrderValue/self.lastPrice
             logger.info(
-                f"{self.symbolName}订单价值不能小于 5 USDT，当前下单数量更新为{self.orderAmount}")
+                f"{self.symbolName}订单价值不能小于 {minOrderValue} USDT，当前下单数量更新为{self.orderAmount}")
 
     # 更新未成交订单
     async def updateOrders(self, orders):
@@ -513,8 +518,9 @@ class TradeManager:
             # 使用实时价格作为基准价
             basePrice = self.lastPrice
             if self.useTransactionPrice and self.lastTransactionOrderPrice is None:
-                logger.warning(f"{self.symbolName}启用了成交价基准但无成交记录，使用实时价格: {basePrice}")
-        
+                logger.warning(
+                    f"{self.symbolName}启用了成交价基准但无成交记录，使用实时价格: {basePrice}")
+
         # 计算买卖价格
         buyPrice = basePrice * (1 - buySpread)
         sellPrice = basePrice * (1 + sellSpread)
@@ -704,34 +710,38 @@ class TradeManager:
         # 检查买卖单数量是否匹配
         expected_buy_total = expected_buy_open + expected_buy_close
         expected_sell_total = expected_sell_open + expected_sell_close
-        
+
         if len(current_buy_orders) != expected_buy_total or len(current_sell_orders) != expected_sell_total:
             return False
-        
+
         # 增加价格偏差检查：如果当前价格与订单价格偏差过大，需要重新下单
         if hasattr(self, 'lastPrice') and self.lastPrice:
             price_deviation_threshold = self.baseSpread * 0.5  # 价格偏差阈值设为基础价差的一半
-            
+
             # 检查买单价格偏差
             for buy_order in current_buy_orders:
                 order_price = float(buy_order.get('price', 0))
                 if order_price > 0:
                     # 买单应该低于当前价格，检查偏差是否过大
-                    price_diff = abs(self.lastPrice - order_price) / self.lastPrice
+                    price_diff = abs(self.lastPrice -
+                                     order_price) / self.lastPrice
                     if price_diff > price_deviation_threshold:
-                        logger.info(f"{self.symbolName}买单价格偏差过大: 当前价格{self.lastPrice}, 订单价格{order_price}, 偏差{price_diff:.4f}")
+                        logger.info(
+                            f"{self.symbolName}买单价格偏差过大: 当前价格{self.lastPrice}, 订单价格{order_price}, 偏差{price_diff:.4f}")
                         return False
-            
+
             # 检查卖单价格偏差
             for sell_order in current_sell_orders:
                 order_price = float(sell_order.get('price', 0))
                 if order_price > 0:
                     # 卖单应该高于当前价格，检查偏差是否过大
-                    price_diff = abs(order_price - self.lastPrice) / self.lastPrice
+                    price_diff = abs(
+                        order_price - self.lastPrice) / self.lastPrice
                     if price_diff > price_deviation_threshold:
-                        logger.info(f"{self.symbolName}卖单价格偏差过大: 当前价格{self.lastPrice}, 订单价格{order_price}, 偏差{price_diff:.4f}")
+                        logger.info(
+                            f"{self.symbolName}卖单价格偏差过大: 当前价格{self.lastPrice}, 订单价格{order_price}, 偏差{price_diff:.4f}")
                         return False
-        
+
         return True
 
     # 恢复模式下的交易流程（不触发networkHelper）
