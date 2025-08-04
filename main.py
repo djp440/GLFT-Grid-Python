@@ -58,35 +58,23 @@ def load_symbols_config():
         with open(config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
 
-        # 只返回启用的交易对
-        enabled_symbols = [
-            symbol for symbol in config['symbols'] if symbol['enabled']]
+        # 将对象格式转换为数组格式，只返回启用的交易对
+        enabled_symbols = []
+        for symbol_name, symbol_config in config.items():
+            if symbol_config.get('enabled', False):
+                # 添加symbol字段
+                symbol_config['symbol'] = symbol_name
+                enabled_symbols.append(symbol_config)
+
         logger.info(f"加载配置文件成功，启用的交易对数量: {len(enabled_symbols)}")
         return enabled_symbols
     except FileNotFoundError:
         logger.warning("配置文件不存在，使用默认配置")
-        return [{
-            "symbol": "BTC/USDT:USDT",
-            "enabled": True,
-            "baseSpread": 0.001,
-            "minSpread": 0.0008,
-            "maxSpread": 0.003,
-            "orderCoolDown": 0.1,
-            "maxStockRadio": 0.25,
-            "orderAmountRatio": 0.05
-        }]
+        os._exit(1)
+
     except Exception as e:
         logger.error(f"加载配置文件失败: {e}，使用默认配置")
-        return [{
-            "symbol": "BTC/USDT:USDT",
-            "enabled": True,
-            "baseSpread": 0.001,
-            "minSpread": 0.0008,
-            "maxSpread": 0.003,
-            "orderCoolDown": 0.1,
-            "maxStockRadio": 0.25,
-            "orderAmountRatio": 0.05
-        }]
+        os._exit(1)
 
 
 async def runWebsocketTask(symbol_config: dict):
@@ -124,7 +112,8 @@ async def runWebsocketTask(symbol_config: dict):
             orderCoolDown=symbol_config.get('orderCoolDown', 0.1),
             maxStockRadio=symbol_config.get('maxStockRadio', 0.25),
             orderAmountRatio=symbol_config.get('orderAmountRatio', 0.05),
-            # coin=coin
+            coin=symbol_config.get('coin', 'USDT'),
+            direction=symbol_config.get('direction', 'both')
         )
         await tm.initSymbolInfo()
         wm = core.websocketManager.WebSocketManager(

@@ -23,8 +23,42 @@ async def positionMarginSize(position,symbolName):
     for pos in position:
       # logger.info(pos)
       if pos['symbol'] == symbolName:
-          marginSize = float(pos['info']['marginSize'])
+          marginSize += float(pos['info']['marginSize'])
     return marginSize
+
+# 获取指定交易对的所有仓位（支持双向持仓）
+async def getPositionsBySymbol(positions, symbolName):
+    """获取指定交易对的所有仓位"""
+    symbol_positions = []
+    for pos in positions:
+        if pos['symbol'] == symbolName:
+            symbol_positions.append(pos)
+    return symbol_positions
+
+# 计算净持仓数量（做多数量 - 做空数量）
+async def calculateNetPosition(positions, symbolName):
+    """计算净持仓数量，做多为正，做空为负"""
+    long_size = 0.0
+    short_size = 0.0
+    
+    for pos in positions:
+        if pos['symbol'] == symbolName:
+            if pos['side'] == 'long':
+                long_size += float(pos['contracts'])
+            elif pos['side'] == 'short':
+                short_size += float(pos['contracts'])
+    
+    # 净持仓 = 做多数量 - 做空数量
+    net_position = long_size - short_size
+    return net_position, long_size, short_size
+
+# 获取指定方向的仓位
+async def getPositionBySide(positions, symbolName, side):
+    """获取指定交易对和方向的仓位"""
+    for pos in positions:
+        if pos['symbol'] == symbolName and pos['side'] == side:
+            return pos
+    return None
 
 #检查当前订单列表未成交的订单数量是不是2，且是不是1个买单和1个卖单
 async def checkOpenOrder(openOrders):

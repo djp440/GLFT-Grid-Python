@@ -1,26 +1,14 @@
 {
-  "symbols": [
-    {
-      "symbol": "SETH/SUSDT:SUSDT",
-      "enabled": true,
-      "baseSpread": 0.008,
-      "minSpread": 0.0005,
-      "maxSpread": 0.002,
-      "orderCoolDown": 0.1,
-      "maxStockRadio": 0.25,
-      "orderAmountRatio": 0.05,
-      "level": 5
-    },
-    {
-      "symbol": "SBTC/SUSDT:SUSDT",
-      "enabled": true,
-      "baseSpread": 0.008,
-      "minSpread": 0.0005,
-      "maxSpread": 0.002,
-      "orderCoolDown": 0.1,
-      "maxStockRadio": 0.25,
-      "orderAmountRatio": 0.05,
-      "level": 5
-    }
-  ]
+  "SUI/USDT:USDT": {
+    "enabled": true,
+    "baseSpread": 0.001,
+    "minSpread": 0.0008,
+    "maxSpread": 0.003,
+    "orderCoolDown": 0.1,
+    "maxStockRadio": 0.5,
+    "orderAmountRatio": 0.01,
+    "level": 3,
+    "direction": "both",
+    "coin": "USDT"
+  }
 }
