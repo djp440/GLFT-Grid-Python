@@ -11,12 +11,19 @@ import queue
 from typing import Dict, List
 from util.sLogger import logger
 from core.dataRecorder import data_recorder
+from config.config import get_chart_config
 
 class ChartManager:
     """图表管理器 - 使用非阻塞方式显示实时图表"""
     
-    def __init__(self, update_interval=3000):  # 更新间隔3秒，减少频率
-        self.update_interval = update_interval
+    def __init__(self, update_interval=None):  # 更新间隔从配置文件读取
+        # 从配置文件读取配置项
+        chart_config = get_chart_config()
+        
+        if update_interval is None:
+            self.update_interval = chart_config.CHART_UPDATE_INTERVAL * 1000  # 转换为毫秒
+        else:
+            self.update_interval = update_interval
         self.running = False
         self.fig = None
         self.axes = None
@@ -42,8 +49,10 @@ class ChartManager:
         try:
             self.running = True
             
-            # 创建图表窗口 - 调整为适合4K显示器的尺寸
-            self.fig, self.axes = plt.subplots(2, 1, figsize=(10, 8))
+            # 创建图表窗口 - 从配置文件读取尺寸
+            chart_config = get_chart_config()
+            figsize = (chart_config.CHART_WIDTH / 100, chart_config.CHART_HEIGHT / 100)  # 转换为英寸
+            self.fig, self.axes = plt.subplots(2, 1, figsize=figsize)
             self.fig.suptitle('GLFT网格交易实时监控', fontsize=14, fontweight='bold')
             
             # 设置窗口位置和大小

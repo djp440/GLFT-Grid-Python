@@ -126,6 +126,20 @@ async def runWebsocketTask(symbol_config: dict):
             'exchange': exchangeBitget
         }
 
+        # 创建定期检查任务
+        async def periodic_check():
+            """定期检查交易状态并自动恢复"""
+            while True:
+                try:
+                    await asyncio.sleep(10)  # 每10秒检查一次
+                    await tm.checkAndRecoverTrading()
+                except asyncio.CancelledError:
+                    logger.info(f"{symbolName}定期检查任务被取消")
+                    break
+                except Exception as e:
+                    logger.error(f"{symbolName}定期检查任务发生错误: {e}")
+                    await asyncio.sleep(5)  # 出错后等待5秒再继续
+        
         # 创建该交易对的任务组
         symbol_task_list = [
             asyncio.create_task(wm.watchTicker()),
@@ -133,6 +147,7 @@ async def runWebsocketTask(symbol_config: dict):
             asyncio.create_task(wm.watchMyPosition()),
             asyncio.create_task(wm.watchMyOrder()),
             asyncio.create_task(wm.watchOpenOrder()),
+            asyncio.create_task(periodic_check()),  # 添加定期检查任务
         ]
 
         # 存储任务引用

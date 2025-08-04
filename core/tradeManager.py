@@ -6,6 +6,7 @@ from util import tradeUtil
 import asyncio
 from core.dataRecorder import data_recorder
 import ccxt.pro
+from config.config import get_trade_config
 
 
 class TradeManager:
@@ -45,9 +46,18 @@ class TradeManager:
         self.netPosition = 0.0  # 净持仓数量
         self.longSize = 0.0     # 做多数量
         self.shortSize = 0.0    # 做空数量
+        # 从配置文件读取配置项
+        trade_config = get_trade_config()
+        
         # 基于成交价的基准价功能
-        self.useTransactionPrice = True  # 是否使用成交价作为基准价的开关
+        self.useTransactionPrice = trade_config.USE_TRANSACTION_PRICE  # 是否使用成交价作为基准价的开关
         self.lastTransactionOrderPrice: float = None  # 最近一次成交订单的价格
+        
+        # 新增：订单状态监控和恢复机制
+        self.lastTradeTime = None  # 最后一次交易时间
+        self.lastOrderCheckTime = None  # 最后一次订单检查时间
+        self.noOrderTimeout = trade_config.NO_ORDER_TIMEOUT  # 无订单超时时间（秒）
+        self.orderCheckInterval = trade_config.ORDER_CHECK_INTERVAL  # 订单检查间隔（秒）
 
     # 创建完对象后必须调用这个函数
     async def initSymbolInfo(self):
@@ -143,6 +153,10 @@ class TradeManager:
             filled_orders = []
 
         logger.info(f"{self.symbolName}处理订单成交事件，成交订单数量: {len(filled_orders)}")
+        
+        # 更新最后交易时间
+        import time
+        self.lastTradeTime = time.time()
 
         # 记录成交订单数据
         try:
@@ -230,6 +244,76 @@ class TradeManager:
             logger.error(f"{self.symbolName}检查和恢复订单监听时发生错误: {e}")
             # 如果恢复失败，触发网络重连
             await self.networkHelper()
+    
+    async def checkAndRecoverTrading(self):
+        """
+        检查交易状态并在需要时自动恢复挂单
+        这个方法用于检测长时间无订单的情况并自动恢复
+        """
+        try:
+            import time
+            current_time = time.time()
+            
+            # 更新检查时间
+            if self.lastOrderCheckTime is None:
+                self.lastOrderCheckTime = current_time
+                return
+            
+            # 检查是否到了检查间隔
+            if (current_time - self.lastOrderCheckTime) < self.orderCheckInterval:
+                return
+            
+            self.lastOrderCheckTime = current_time
+            
+            # 获取当前未成交订单
+            allOrder = await self.wsExchange.fetchOpenOrders(self.symbolName)
+            targetOrder = await tradeUtil.openOrderFilter(allOrder, self.symbolName)
+            
+            # 检查是否长时间无订单
+            has_no_orders = len(targetOrder) == 0
+            is_timeout = False
+            
+            if has_no_orders:
+                if self.lastTradeTime is None:
+                    # 如果从未记录过交易时间，使用当前时间
+                    self.lastTradeTime = current_time
+                elif (current_time - self.lastTradeTime) >= self.noOrderTimeout:
+                    is_timeout = True
+            else:
+                # 有订单时更新最后交易时间
+                self.lastTradeTime = current_time
+            
+            # 如果长时间无订单，尝试恢复
+            if has_no_orders and is_timeout:
+                logger.warning(f"{self.symbolName}检测到长时间无订单({self.noOrderTimeout}秒)，尝试自动恢复挂单")
+                
+                # 检查websocket监听状态
+                if self.websocketManager and await self.websocketManager.isOrderWatchActive():
+                    logger.info(f"{self.symbolName}停止无效的订单监听")
+                    self.websocketManager.inWatchOpenOrder = False
+                    self.websocketManager.openOrders = []
+                
+                # 重新执行交易逻辑
+                await self.runTrade()
+                logger.info(f"{self.symbolName}自动恢复挂单完成")
+                
+                # 重置最后交易时间
+                self.lastTradeTime = current_time
+            
+            # 检查订单监听状态
+            elif len(targetOrder) > 0:
+                # 有订单但没有监听，尝试恢复监听
+                if self.websocketManager and not await self.websocketManager.isOrderWatchActive():
+                    logger.warning(f"{self.symbolName}发现有订单但无监听，恢复订单监听")
+                    if len(targetOrder) == 2:
+                        await self.websocketManager.runOpenOrderWatch(targetOrder[0], targetOrder[1])
+                    else:
+                        await self.websocketManager.runOpenOrderWatch(targetOrder[0])
+                    logger.info(f"{self.symbolName}订单监听恢复成功")
+            
+        except Exception as e:
+            logger.error(f"{self.symbolName}检查和恢复交易状态时发生错误: {e}")
+            # 不触发networkHelper，避免过度重连
 
     # 更新余额
     async def updateBalance(self, balance: float, equity: float):
@@ -403,7 +487,10 @@ class TradeManager:
             self.orderAmount = orderAmount
             logger.info(f"{self.symbolName}当前下单数量更新为{self.orderAmount}")
 
-        minOrderValue = 5.5
+        # 从配置文件读取最小订单价值
+        trade_config = get_trade_config()
+        minOrderValue = getattr(trade_config, 'MIN_ORDER_VALUE', 5.5)  # 默认5.5 USDT
+        
         # 校验订单价值
         if orderAmount*self.lastPrice < minOrderValue:
             self.orderAmount = minOrderValue/self.lastPrice
@@ -716,7 +803,10 @@ class TradeManager:
 
         # 增加价格偏差检查：如果当前价格与订单价格偏差过大，需要重新下单
         if hasattr(self, 'lastPrice') and self.lastPrice:
-            price_deviation_threshold = self.baseSpread * 0.5  # 价格偏差阈值设为基础价差的一半
+            # 从配置文件读取价格偏差阈值系数
+            trade_config = get_trade_config()
+            deviation_factor = getattr(trade_config, 'PRICE_DEVIATION_FACTOR', 0.5)  # 默认0.5
+            price_deviation_threshold = self.baseSpread * deviation_factor  # 价格偏差阈值
 
             # 检查买单价格偏差
             for buy_order in current_buy_orders:

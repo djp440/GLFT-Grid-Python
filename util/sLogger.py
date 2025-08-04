@@ -2,6 +2,7 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
+from config.config import get_log_config
 
 class SingletonLogger:
     _instance = None # 用于存储单例实例
@@ -15,14 +16,24 @@ class SingletonLogger:
 
     def __init__(self, name='my_app', level=logging.INFO, log_dir='logs',
                  console_level=logging.INFO, file_level=logging.DEBUG,
-                 max_bytes=10 * 1024 * 1024, backup_count=5):
+                 max_bytes=None, backup_count=None):
         # 确保初始化配置只执行一次
         if not self._initialized:
+            # 从配置文件读取配置项
+            log_config = get_log_config()
+            
+            # 使用配置文件中的值，如果参数未提供的话
+            if max_bytes is None:
+                max_bytes = log_config.LOG_FILE_MAX_SIZE
+            if backup_count is None:
+                backup_count = log_config.LOG_FILE_BACKUP_COUNT
+            
             self.logger = logging.getLogger(name)
             self.logger.setLevel(level)
 
             formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s'
+                log_config.LOG_FORMAT,
+                datefmt=log_config.LOG_DATE_FORMAT
             )
 
             if not self.logger.handlers: # 同样避免重复添加处理器
