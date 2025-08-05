@@ -18,7 +18,7 @@ class WebSocketManager:
         # 新增：订单监听增强机制
         self.orderWatchStartTime = None  # 订单监听开始时间
         self.lastOrderCheckTime = None   # 最后一次主动检查时间
-        
+
         # 从配置文件读取配置项
         ws_config = get_websocket_config()
         self.orderCheckInterval = ws_config.ORDER_CHECK_INTERVAL    # 主动检查间隔（秒）
@@ -119,54 +119,79 @@ class WebSocketManager:
         import time
         self.orderWatchStartTime = time.time()
         self.lastOrderCheckTime = time.time()
-        logger.info(f"接收到{self.symbolName}订单监控需求: {order_ids}，开始时间: {self.orderWatchStartTime}")
+        logger.info(
+            f"接收到{self.symbolName}订单监控需求: {order_ids}，开始时间: {self.orderWatchStartTime}")
+        
+        # 立即执行一次主动检查，以捕获可能已经瞬间成交的订单
+        try:
+            logger.info(f"{self.symbolName}执行初始订单状态检查，检查瞬间成交")
+            filled_orders, missing_order_ids = await self._activeCheckOrderStatus()
+            if filled_orders or missing_order_ids:
+                logger.info(f"{self.symbolName}初始检查发现{len(filled_orders)}个已成交订单，{len(missing_order_ids)}个消失订单")
+                # 停止监听并通知TradeManager
+                self.inWatchOpenOrder = False
+                self.openOrders = []
+                self.orderWatchStartTime = None
+                await self.tradeManager.onOrderFilled(filled_orders)
+        except Exception as e:
+            logger.error(f"{self.symbolName}初始订单状态检查失败: {e}")
 
     async def isOrderWatchActive(self):
         """检查订单监听是否活跃"""
         return self.inWatchOpenOrder and len(self.openOrders) > 0
-    
+
     async def _activeCheckOrderStatus(self):
         """主动检查订单状态（用于检测瞬间成交的订单）"""
         if not self.inWatchOpenOrder or len(self.openOrders) == 0:
-            return []
-        
+            return [], []
+
         try:
             # 获取当前所有未成交订单
             allOpenOrders = await self.wsExchange.fetchOpenOrders(self.symbolName)
-            
+            logger.debug(f"{self.symbolName}主动检查获取到{len(allOpenOrders)}个未成交订单")
+
             # 检查我们监听的订单是否还在未成交列表中
             missing_orders = []
+            existing_orders = []
+
             for order_id in self.openOrders:
                 order_found = False
                 for open_order in allOpenOrders:
                     if str(open_order['id']) == str(order_id):
                         order_found = True
+                        existing_orders.append(order_id)
                         break
-                
+
                 if not order_found:
                     # 订单不在未成交列表中，可能已经成交
                     missing_orders.append(order_id)
-                    logger.info(f"{self.symbolName}主动检查发现订单{order_id}已不在未成交列表中")
-            
+                    logger.info(
+                        f"{self.symbolName}主动检查发现订单{order_id}已不在未成交列表中")
+
+            logger.debug(
+                f"{self.symbolName}主动检查结果: 存在{len(existing_orders)}个订单，消失{len(missing_orders)}个订单")
+
             # 如果有订单消失，尝试获取这些订单的详细信息
             filled_orders = []
             for order_id in missing_orders:
                 try:
                     # 尝试获取订单详情
                     order_detail = await self.wsExchange.fetchOrder(order_id, self.symbolName)
-                    if order_detail and order_detail.get('status') in ['closed', 'filled']:
+                    if order_detail and order_detail.get('status') in ['closed', 'filled', 'canceled']:
                         filled_orders.append(order_detail)
-                        logger.info(f"{self.symbolName}主动检查确认订单{order_id}已成交: {order_detail.get('side')} {order_detail.get('filled')} @ {order_detail.get('average') or order_detail.get('price')}")
+                        logger.info(
+                            f"{self.symbolName}主动检查确认订单{order_id}状态为{order_detail.get('status')}: {order_detail.get('side')} {order_detail.get('filled')} @ {order_detail.get('average') or order_detail.get('price')}")
                 except Exception as e:
                     logger.warning(f"{self.symbolName}获取订单{order_id}详情失败: {e}")
                     # 即使获取详情失败，也认为订单可能已成交
-                    filled_orders.append({'id': order_id, 'status': 'filled', 'filled': 0})
-            
-            return filled_orders
-            
+                    filled_orders.append(
+                        {'id': order_id, 'status': 'filled', 'filled': 0})
+
+            return filled_orders, missing_orders
+
         except Exception as e:
             logger.error(f"{self.symbolName}主动检查订单状态时发生错误: {e}")
-            return []
+            return [], []
 
     async def watchOpenOrder(self):
         logger.info(f"{self.symbolName}未成交订单获取websocket模块启动")
@@ -175,26 +200,33 @@ class WebSocketManager:
                 try:
                     import time
                     current_time = time.time()
-                    
+
                     # 检查是否需要进行主动检查
                     should_active_check = False
                     if self.lastOrderCheckTime is None or (current_time - self.lastOrderCheckTime) >= self.orderCheckInterval:
                         should_active_check = True
                         self.lastOrderCheckTime = current_time
-                    
+                        logger.debug(
+                            f"{self.symbolName}触发定期主动检查，间隔: {self.orderCheckInterval}秒")
+
                     # 检查是否超时
                     if self.orderWatchStartTime and (current_time - self.orderWatchStartTime) >= self.orderWatchTimeout:
-                        logger.warning(f"{self.symbolName}订单监听超时({self.orderWatchTimeout}秒)，执行主动检查")
+                        logger.warning(
+                            f"{self.symbolName}订单监听超时({self.orderWatchTimeout}秒)，执行主动检查")
                         should_active_check = True
-                    
+
                     # 执行主动检查
                     active_check_filled_orders = []
+                    missing_order_ids_from_active = []
                     if should_active_check:
-                        logger.info(f"{self.symbolName}执行主动订单状态检查")
-                        active_check_filled_orders = await self._activeCheckOrderStatus()
-                        if active_check_filled_orders:
-                            logger.info(f"{self.symbolName}主动检查发现{len(active_check_filled_orders)}个已成交订单")
-                    
+                        logger.info(
+                            f"{self.symbolName}执行主动订单状态检查，当前监听订单: {self.openOrders}")
+                        active_check_filled_orders, missing_order_ids_from_active = await self._activeCheckOrderStatus()
+
+                        if active_check_filled_orders or missing_order_ids_from_active:
+                            logger.info(
+                                f"{self.symbolName}主动检查发现{len(active_check_filled_orders)}个已成交订单，{len(missing_order_ids_from_active)}个消失订单")
+
                     # 正常的websocket监听
                     allOrder = await self.wsExchange.watchOrders()
 
@@ -232,10 +264,10 @@ class WebSocketManager:
                             missing_order_ids.append(order_id)
                             logger.info(
                                 f"{self.symbolName}订单{order_id}已从websocket更新中消失，可能已完全成交")
-                    
+
                     # 合并websocket检测和主动检查的结果
                     all_filled_orders = websocket_filled_orders + active_check_filled_orders
-                    
+
                     # 去重（避免同一订单被重复处理）
                     unique_filled_orders = []
                     processed_order_ids = set()

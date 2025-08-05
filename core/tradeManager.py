@@ -48,11 +48,11 @@ class TradeManager:
         self.shortSize = 0.0    # 做空数量
         # 从配置文件读取配置项
         trade_config = get_trade_config()
-        
+
         # 基于成交价的基准价功能
         self.useTransactionPrice = trade_config.USE_TRANSACTION_PRICE  # 是否使用成交价作为基准价的开关
         self.lastTransactionOrderPrice: float = None  # 最近一次成交订单的价格
-        
+
         # 新增：订单状态监控和恢复机制
         self.lastTradeTime = None  # 最后一次交易时间
         self.lastOrderCheckTime = None  # 最后一次订单检查时间
@@ -153,7 +153,7 @@ class TradeManager:
             filled_orders = []
 
         logger.info(f"{self.symbolName}处理订单成交事件，成交订单数量: {len(filled_orders)}")
-        
+
         # 更新最后交易时间
         import time
         self.lastTradeTime = time.time()
@@ -172,7 +172,7 @@ class TradeManager:
 
                     # 计算手续费（如果订单中没有手续费信息，使用估算值）
                     fee = order.get('fee', {}).get('cost', 0)
-                    if fee == 0 and 'cost' in order:
+                    if fee == 0 and 'cost' in order and order['cost'] is not None:
                         # 估算手续费为成交金额的0.1%
                         fee = order['cost'] * 0.0002
 
@@ -244,7 +244,7 @@ class TradeManager:
             logger.error(f"{self.symbolName}检查和恢复订单监听时发生错误: {e}")
             # 如果恢复失败，触发网络重连
             await self.networkHelper()
-    
+
     async def checkAndRecoverTrading(self):
         """
         检查交易状态并在需要时自动恢复挂单
@@ -253,26 +253,26 @@ class TradeManager:
         try:
             import time
             current_time = time.time()
-            
+
             # 更新检查时间
             if self.lastOrderCheckTime is None:
                 self.lastOrderCheckTime = current_time
                 return
-            
+
             # 检查是否到了检查间隔
             if (current_time - self.lastOrderCheckTime) < self.orderCheckInterval:
                 return
-            
+
             self.lastOrderCheckTime = current_time
-            
+
             # 获取当前未成交订单
             allOrder = await self.wsExchange.fetchOpenOrders(self.symbolName)
             targetOrder = await tradeUtil.openOrderFilter(allOrder, self.symbolName)
-            
+
             # 检查是否长时间无订单
             has_no_orders = len(targetOrder) == 0
             is_timeout = False
-            
+
             if has_no_orders:
                 if self.lastTradeTime is None:
                     # 如果从未记录过交易时间，使用当前时间
@@ -282,24 +282,25 @@ class TradeManager:
             else:
                 # 有订单时更新最后交易时间
                 self.lastTradeTime = current_time
-            
+
             # 如果长时间无订单，尝试恢复
             if has_no_orders and is_timeout:
-                logger.warning(f"{self.symbolName}检测到长时间无订单({self.noOrderTimeout}秒)，尝试自动恢复挂单")
-                
+                logger.warning(
+                    f"{self.symbolName}检测到长时间无订单({self.noOrderTimeout}秒)，尝试自动恢复挂单")
+
                 # 检查websocket监听状态
                 if self.websocketManager and await self.websocketManager.isOrderWatchActive():
                     logger.info(f"{self.symbolName}停止无效的订单监听")
                     self.websocketManager.inWatchOpenOrder = False
                     self.websocketManager.openOrders = []
-                
+
                 # 重新执行交易逻辑
                 await self.runTrade()
                 logger.info(f"{self.symbolName}自动恢复挂单完成")
-                
+
                 # 重置最后交易时间
                 self.lastTradeTime = current_time
-            
+
             # 检查订单监听状态
             elif len(targetOrder) > 0:
                 # 有订单但没有监听，尝试恢复监听
@@ -310,7 +311,7 @@ class TradeManager:
                     else:
                         await self.websocketManager.runOpenOrderWatch(targetOrder[0])
                     logger.info(f"{self.symbolName}订单监听恢复成功")
-            
+
         except Exception as e:
             logger.error(f"{self.symbolName}检查和恢复交易状态时发生错误: {e}")
             # 不触发networkHelper，避免过度重连
@@ -434,7 +435,13 @@ class TradeManager:
         # 计算总保证金
         marginSize = await tradeUtil.positionMarginSize(self.position, self.symbolName)
 
-        # 添加边界检查防止除零错误
+        # 添加边界检查防止除零错误和None值错误
+        if self.balance is None:
+            logger.warning(f"{self.symbolName}余额为None，持仓比例设为0")
+            ratio = 0.0
+            self.nowStockRadio = ratio
+            return
+        
         total_value = self.balance + marginSize
         if total_value <= 0:
             logger.warning(
@@ -458,8 +465,9 @@ class TradeManager:
 
     # 更新下单数量
     async def updateOrderAmount(self, orderAmount: float = None):
-        logger.debug(f"{self.symbolName}更新订单数量: 传入参数={orderAmount}, 当前权益={self.equity}, 当前价格={self.lastPrice}")
-        
+        logger.debug(
+            f"{self.symbolName}更新订单数量: 传入参数={orderAmount}, 当前权益={self.equity}, 当前价格={self.lastPrice}")
+
         if orderAmount is None:
             # 添加边界检查防止除零错误
             if self.lastPrice is None or self.lastPrice <= 0:
@@ -473,7 +481,8 @@ class TradeManager:
             else:
                 try:
                     orderAmount = self.equity/self.lastPrice*self.orderAmountRatio
-                    logger.debug(f"{self.symbolName}计算订单数量: {self.equity}/{self.lastPrice}*{self.orderAmountRatio}={orderAmount}")
+                    logger.debug(
+                        f"{self.symbolName}计算订单数量: {self.equity}/{self.lastPrice}*{self.orderAmountRatio}={orderAmount}")
                 except ZeroDivisionError:
                     logger.error(f"{self.symbolName}计算订单数量时发生除零错误，使用最小订单数量")
                     orderAmount = self.minOrderAmount
@@ -491,8 +500,9 @@ class TradeManager:
 
         # 从配置文件读取最小订单价值
         trade_config = get_trade_config()
-        minOrderValue = getattr(trade_config, 'MIN_ORDER_VALUE', 5.5)  # 默认5.5 USDT
-        
+        minOrderValue = getattr(
+            trade_config, 'MIN_ORDER_VALUE', 5.5)  # 默认5.5 USDT
+
         # 校验订单价值
         if self.lastPrice and self.lastPrice > 0:
             current_value = self.orderAmount * self.lastPrice
@@ -500,7 +510,7 @@ class TradeManager:
                 self.orderAmount = minOrderValue / self.lastPrice
                 logger.info(
                     f"{self.symbolName}订单价值({current_value:.2f})小于最小价值({minOrderValue})，调整订单数量为{self.orderAmount:.6f}")
-        
+
         logger.info(f"{self.symbolName}订单数量更新完成: {self.orderAmount:.6f}")
 
     # 更新未成交订单
@@ -521,14 +531,14 @@ class TradeManager:
         try:
             # 计算当前持仓占比占最大持仓占比的比例
             ratio = self.nowStockRadio / self.maxStockRadio if self.maxStockRadio > 0 else 0
-            
+
             # 基础订单数量（根据账户权益和配置比例计算）
             if self.equity and self.lastPrice and self.equity > 0 and self.lastPrice > 0:
                 base_amount = self.equity / self.lastPrice * self.orderAmountRatio
             else:
                 base_amount = self.minOrderAmount
                 logger.warning(f"{self.symbolName}无法计算基础订单数量，使用最小订单数量")
-            
+
             # 根据持仓比例调整订单数量
             # 持仓比例越高，订单数量越小（降低风险）
             if ratio > 0.8:  # 高持仓比例
@@ -537,15 +547,16 @@ class TradeManager:
                 adjusted_amount = base_amount * 0.75
             else:  # 低持仓比例或无持仓
                 adjusted_amount = base_amount
-            
+
             # 确保不小于最小订单数量
             final_amount = max(adjusted_amount, self.minOrderAmount)
-            
+
             # 更新订单数量
             await self.updateOrderAmount(final_amount)
-            
-            logger.info(f"{self.symbolName}动态计算订单数量: 基础={base_amount:.6f}, 持仓比例={ratio:.3f}, 最终={final_amount:.6f}")
-            
+
+            logger.info(
+                f"{self.symbolName}动态计算订单数量: 基础={base_amount:.6f}, 持仓比例={ratio:.3f}, 最终={final_amount:.6f}")
+
         except Exception as e:
             logger.error(f"{self.symbolName}计算订单数量时发生错误: {e}，使用最小订单数量")
             await self.updateOrderAmount(self.minOrderAmount)
@@ -685,22 +696,24 @@ class TradeManager:
     async def runTrade(self):
         try:
             logger.info(f"{self.symbolName}开始执行交易流程")
-            
+
             # 重新计算订单数量（根据当前持仓和市场状况）
             await self.calculateOrderAmount()
-            
+
             # 检查必要的交易条件
             if self.orderAmount is None or self.orderAmount <= 0:
-                logger.error(f"{self.symbolName}订单数量无效: {self.orderAmount}，跳过交易")
+                logger.error(
+                    f"{self.symbolName}订单数量无效: {self.orderAmount}，跳过交易")
                 return
-                
+
             if self.lastPrice is None or self.lastPrice <= 0:
                 logger.error(f"{self.symbolName}价格信息无效: {self.lastPrice}，跳过交易")
                 return
-            
+
             # 计算期望的订单数量
             expected_orders = self._calculate_expected_orders()
-            logger.info(f"{self.symbolName}期望订单数量: {len(expected_orders)}, 详情: {[o['type'] for o in expected_orders]}")
+            logger.info(
+                f"{self.symbolName}期望订单数量: {len(expected_orders)}, 详情: {[o['type'] for o in expected_orders]}")
 
             # 检查当前订单是否符合期望
             if self._check_orders_match_expected(expected_orders):
@@ -719,7 +732,8 @@ class TradeManager:
 
             try:
                 buyPrice, sellPrice = await self.calculateOrderPrice()
-                logger.info(f"{self.symbolName}计算订单价格: 买入={buyPrice}, 卖出={sellPrice}, 数量={self.orderAmount}")
+                logger.info(
+                    f"{self.symbolName}计算订单价格: 买入={buyPrice}, 卖出={sellPrice}, 数量={self.orderAmount}")
                 orders_to_place = []
 
                 # 根据期望订单列表下单
@@ -727,7 +741,8 @@ class TradeManager:
                     side = order_info['side']
                     reduce_only = order_info['reduce_only']
                     price = buyPrice if side == 'buy' else sellPrice
-                    logger.info(f"{self.symbolName}准备下单: {side} {self.orderAmount} @ {price} (reduce_only={reduce_only})")
+                    logger.info(
+                        f"{self.symbolName}准备下单: {side} {self.orderAmount} @ {price} (reduce_only={reduce_only})")
                     orders_to_place.append(self.placeOrder(
                         self.orderAmount, price, side, reduce_only))
 
@@ -742,26 +757,31 @@ class TradeManager:
                         logger.warning(f"{self.symbolName}订单下单失败")
                         await self.networkHelper()
                         return
-                    logger.info(f"{self.symbolName}订单下单成功: {order.get('id', 'unknown')}")
+                    logger.info(
+                        f"{self.symbolName}订单下单成功: {order.get('id', 'unknown')}")
                     if self.websocketManager and order:
                         await self.websocketManager.runOpenOrderWatch(order)
                 elif len(orders_to_place) > 1:
-                    logger.info(f"{self.symbolName}执行批量订单下单，数量: {len(orders_to_place)}")
+                    logger.info(
+                        f"{self.symbolName}执行批量订单下单，数量: {len(orders_to_place)}")
                     results = await asyncio.gather(*orders_to_place, return_exceptions=True)
                     successful_orders = [
                         r for r in results if r is not None and not isinstance(r, Exception)]
-                    failed_orders = [r for r in results if isinstance(r, Exception)]
-                    
+                    failed_orders = [
+                        r for r in results if isinstance(r, Exception)]
+
                     if failed_orders:
-                        logger.error(f"{self.symbolName}部分订单下单失败: {[str(e) for e in failed_orders]}")
-                    
+                        logger.error(
+                            f"{self.symbolName}部分订单下单失败: {[str(e) for e in failed_orders]}")
+
                     if len(successful_orders) != len(orders_to_place):
                         logger.warning(
                             f"{self.symbolName}部分订单下单失败，成功: {len(successful_orders)}/{len(orders_to_place)}")
                         await self.networkHelper()
                         return
-                    
-                    logger.info(f"{self.symbolName}批量订单下单成功，数量: {len(successful_orders)}")
+
+                    logger.info(
+                        f"{self.symbolName}批量订单下单成功，数量: {len(successful_orders)}")
                     if self.websocketManager and successful_orders:
                         await self.websocketManager.runOpenOrderWatch(*successful_orders)
 
@@ -872,7 +892,8 @@ class TradeManager:
         if hasattr(self, 'lastPrice') and self.lastPrice:
             # 从配置文件读取价格偏差阈值系数
             trade_config = get_trade_config()
-            deviation_factor = getattr(trade_config, 'PRICE_DEVIATION_FACTOR', 0.5)  # 默认0.5
+            deviation_factor = getattr(
+                trade_config, 'PRICE_DEVIATION_FACTOR', 0.5)  # 默认0.5
             price_deviation_threshold = self.baseSpread * deviation_factor  # 价格偏差阈值
 
             # 检查买单价格偏差

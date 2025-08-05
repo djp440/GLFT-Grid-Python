@@ -139,7 +139,7 @@ async def runWebsocketTask(symbol_config: dict):
                 except Exception as e:
                     logger.error(f"{symbolName}定期检查任务发生错误: {e}")
                     await asyncio.sleep(5)  # 出错后等待5秒再继续
-        
+
         # 创建该交易对的任务组
         symbol_task_list = [
             asyncio.create_task(wm.watchTicker()),
