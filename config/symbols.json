@@ -1,13 +1,13 @@
 {
-  "SUI/USDT:USDT": {
+  "ETH/USDT:USDT": {
     "enabled": true,
-    "baseSpread": 0.0015,
-    "minSpread": 0.001,
-    "maxSpread": 0.005,
+    "baseSpread": 0.001,
+    "minSpread": 0.0005,
+    "maxSpread": 0.004,
     "orderCoolDown": 0.1,
     "maxStockRadio": 0.5,
-    "orderAmountRatio": 0.01,
-    "level": 3,
+    "orderAmountRatio": 0.05,
+    "level": 5,
     "direction": "both",
     "coin": "USDT"
   }

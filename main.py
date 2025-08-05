@@ -155,7 +155,12 @@ async def runWebsocketTask(symbol_config: dict):
 
         # 绑定websocket管理器并开始交易
         await tm.bindWebsocketManager(wm)
-        await tm.runTrade()
+        logger.info(f"交易对 {symbolName} 开始执行初始交易")
+        try:
+            await tm.runTrade()
+            logger.info(f"交易对 {symbolName} 初始交易执行完成")
+        except Exception as e:
+            logger.error(f"交易对 {symbolName} 初始交易执行失败: {e}")
 
         logger.info(f"交易对 {symbolName} 初始化完成，开始运行")
 
