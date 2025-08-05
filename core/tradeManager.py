@@ -532,8 +532,9 @@ class TradeManager:
                 oldOrderInfo.append({'id': order['id'], 'side': order['side']})
 
             self.openOrders = orders
-            if await tradeUtil.checkOpenOrder(self.openOrders):
-                self.checkOrder = await tradeUtil.checkOpenOrder(self.openOrders)
+            # 使用新的订单检查逻辑，支持动态订单数量
+            expected_orders = self._calculate_expected_orders()
+            self.checkOrder = self._check_orders_match_expected(expected_orders)
 
     # 计算下单数量
 
@@ -937,12 +938,14 @@ class TradeManager:
     async def runTradeInRecovery(self):
         """在恢复模式下执行交易逻辑，失败时不会再次触发networkHelper"""
         try:
-            if await tradeUtil.checkOpenOrder(self.openOrders):
-                logger.info(f"{self.symbolName}当前未成交订单数量为2，且1个买单和1个卖单，跳过挂单")
+            # 使用新的订单检查逻辑
+            expected_orders = self._calculate_expected_orders()
+            if self._check_orders_match_expected(expected_orders):
+                logger.info(f"{self.symbolName}当前订单状态符合预期，跳过挂单")
                 return
 
             if len(self.openOrders) != 0:
-                logger.info(f"{self.symbolName}当前未成交订单数量不是2，或不是1个买单和1个卖单，继续挂单")
+                logger.info(f"{self.symbolName}当前订单状态不符合预期，继续挂单")
                 try:
                     await self.cancelAllOrder()
                 except Exception as e:
