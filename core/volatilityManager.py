@@ -138,7 +138,12 @@ class VolatilityManager:
                     # 直接使用新计算的波动率
                     self.current_volatility = new_volatility
                 
-                logger.info(f"{self.symbolName}波动率更新: ATR={atr:.6f}, 当前价格={current_price:.2f}, 波动率={self.current_volatility:.6f}")
+                # 只在波动率有显著变化时才输出日志（变化超过5%）
+                if not hasattr(self, 'last_logged_volatility') or abs(self.current_volatility - self.last_logged_volatility) / self.last_logged_volatility > 0.05:
+                    logger.info(f"{self.symbolName}波动率更新: ATR={atr:.6f}, 当前价格={current_price:.2f}, 波动率={self.current_volatility:.6f}")
+                    self.last_logged_volatility = self.current_volatility
+                else:
+                    logger.debug(f"{self.symbolName}波动率微调: 波动率={self.current_volatility:.6f}")
                 
                 # 更新TradeManager的价差参数
                 if self.tradeManager:
@@ -175,10 +180,18 @@ class VolatilityManager:
             self.tradeManager.baseSpread = new_base_spread / 2
             self.tradeManager.maxSpread = new_max_spread / 2
             
-            logger.info(f"{self.symbolName}价差参数已更新:")
-            logger.info(f"  minSpread: {old_min:.6f} -> {new_min_spread:.6f}")
-            logger.info(f"  baseSpread: {old_base:.6f} -> {new_base_spread:.6f}")
-            logger.info(f"  maxSpread: {old_max:.6f} -> {new_max_spread:.6f}")
+            # 检查价差参数是否有显著变化（变化超过2%）
+            min_change = abs(new_min_spread - old_min) / old_min if old_min > 0 else 1
+            base_change = abs(new_base_spread - old_base) / old_base if old_base > 0 else 1
+            max_change = abs(new_max_spread - old_max) / old_max if old_max > 0 else 1
+            
+            if max(min_change, base_change, max_change) > 0.02:
+                logger.info(f"{self.symbolName}价差参数已更新:")
+                logger.info(f"  minSpread: {old_min:.6f} -> {new_min_spread:.6f}")
+                logger.info(f"  baseSpread: {old_base:.6f} -> {new_base_spread:.6f}")
+                logger.info(f"  maxSpread: {old_max:.6f} -> {new_max_spread:.6f}")
+            else:
+                logger.debug(f"{self.symbolName}价差参数微调: min={new_min_spread:.6f}, base={new_base_spread:.6f}, max={new_max_spread:.6f}")
             
         except Exception as e:
             logger.error(f"{self.symbolName}更新TradeManager价差参数时发生错误: {e}")

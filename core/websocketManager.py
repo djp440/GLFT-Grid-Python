@@ -18,6 +18,8 @@ class WebSocketManager:
         # 新增：订单监听增强机制
         self.orderWatchStartTime = None  # 订单监听开始时间
         self.lastOrderCheckTime = None   # 最后一次主动检查时间
+        # 新增：网络错误状态标志，避免重复调用networkHelper
+        self.isHandlingNetworkError = False
 
         # 从配置文件读取配置项
         ws_config = get_websocket_config()
@@ -38,7 +40,13 @@ class WebSocketManager:
                 await self.tradeManager.updateLastPrice(float(((bid+ask)/2)))
             except ccxt.NetworkError as e:
                 logger.error(f"{self.symbolName}价格获取网络错误: {e}")
-                await self.tradeManager.networkHelper()
+                # 检查是否已经在处理网络错误，避免重复调用
+                if not self.isHandlingNetworkError and not self.tradeManager.networkError:
+                    self.isHandlingNetworkError = True
+                    await self.tradeManager.networkHelper()
+                    self.isHandlingNetworkError = False
+                else:
+                    logger.debug(f"{self.symbolName}价格获取：网络错误处理中，跳过重复调用")
             except ccxt.ExchangeError as e:
                 logger.error(f"{self.symbolName}价格获取交易所错误: {e}")
             except asyncio.CancelledError:
@@ -56,7 +64,13 @@ class WebSocketManager:
                 await self.tradeManager.updatePosition(position)
             except ccxt.NetworkError as e:
                 logger.error(f"{self.symbolName}持仓获取网络错误: {e}")
-                await self.tradeManager.networkHelper()
+                # 检查是否已经在处理网络错误，避免重复调用
+                if not self.isHandlingNetworkError and not self.tradeManager.networkError:
+                    self.isHandlingNetworkError = True
+                    await self.tradeManager.networkHelper()
+                    self.isHandlingNetworkError = False
+                else:
+                    logger.debug(f"{self.symbolName}持仓获取：网络错误处理中，跳过重复调用")
             except ccxt.ExchangeError as e:
                 logger.error(f"{self.symbolName}持仓获取交易所错误: {e}")
             except asyncio.CancelledError:
@@ -73,7 +87,13 @@ class WebSocketManager:
                 await self.tradeManager.updateBalance(float(balance[self.tradeManager.coin]['free']), float(balance[self.tradeManager.coin]['total']))
             except ccxt.NetworkError as e:
                 logger.error(f"余额获取网络错误: {e}")
-                await self.tradeManager.networkHelper()
+                # 检查是否已经在处理网络错误，避免重复调用
+                if not self.isHandlingNetworkError and not self.tradeManager.networkError:
+                    self.isHandlingNetworkError = True
+                    await self.tradeManager.networkHelper()
+                    self.isHandlingNetworkError = False
+                else:
+                    logger.debug(f"{self.symbolName}余额获取：网络错误处理中，跳过重复调用")
             except ccxt.ExchangeError as e:
                 logger.error(f"余额获取交易所错误: {e}")
             except asyncio.CancelledError:
@@ -94,7 +114,13 @@ class WebSocketManager:
                 await self.tradeManager.updateOrders(targetOrder)
             except ccxt.NetworkError as e:
                 logger.error(f"{self.symbolName}订单获取网络错误: {e}")
-                await self.tradeManager.networkHelper()
+                # 检查是否已经在处理网络错误，避免重复调用
+                if not self.isHandlingNetworkError and not self.tradeManager.networkError:
+                    self.isHandlingNetworkError = True
+                    await self.tradeManager.networkHelper()
+                    self.isHandlingNetworkError = False
+                else:
+                    logger.debug(f"{self.symbolName}订单获取：网络错误处理中，跳过重复调用")
             except ccxt.ExchangeError as e:
                 logger.error(f"{self.symbolName}订单获取交易所错误: {e}")
             except asyncio.CancelledError:
@@ -297,7 +323,13 @@ class WebSocketManager:
 
                 except ccxt.NetworkError as e:
                     logger.error(f"{self.symbolName}订单获取网络错误: {e}")
-                    await self.tradeManager.networkHelper()
+                    # 检查是否已经在处理网络错误，避免重复调用
+                    if not self.isHandlingNetworkError and not self.tradeManager.networkError:
+                        self.isHandlingNetworkError = True
+                        await self.tradeManager.networkHelper()
+                        self.isHandlingNetworkError = False
+                    else:
+                        logger.debug(f"{self.symbolName}订单获取：网络错误处理中，跳过重复调用")
                 except ccxt.ExchangeError as e:
                     logger.error(f"{self.symbolName}订单获取交易所错误: {e}")
                 except asyncio.CancelledError:

@@ -284,9 +284,8 @@ class TradeManager:
                     self.lastTradeTime = current_time
                 elif (current_time - self.lastTradeTime) >= self.noOrderTimeout:
                     is_timeout = True
-            else:
-                # 有订单时更新最后交易时间
-                self.lastTradeTime = current_time
+            # 移除错误的逻辑：不应该在有订单时就更新lastTradeTime
+            # lastTradeTime应该只在订单真正成交时（onOrderFilled中）更新
 
             # 如果长时间无订单，尝试恢复
             if has_no_orders and is_timeout:
