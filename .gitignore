@@ -211,3 +211,5 @@ test/debug_order_fill_detection.py
 test/debug_order_monitoring_fixed.py
 test/debug_order_monitoring.py
 test/debug_simple_order_monitoring.py
+
+img/
