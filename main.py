@@ -149,6 +149,12 @@ async def runWebsocketTask(symbol_config: dict):
             asyncio.create_task(wm.watchOpenOrder()),
             asyncio.create_task(periodic_check()),  # 添加定期检查任务
         ]
+        
+        # 启动波动率监控任务
+        volatility_task = await tm.startVolatilityMonitoring()
+        if volatility_task:
+            symbol_task_list.append(volatility_task)
+            logger.info(f"交易对 {symbolName} 波动率监控任务已添加")
 
         # 存储任务引用
         symbol_tasks[symbolName] = symbol_task_list
@@ -200,6 +206,15 @@ async def cleanup_symbol_resources(symbolName: str):
 
     # 清理交易所连接
     if symbolName in symbol_managers:
+        # 停止波动率监控
+        trade_manager = symbol_managers[symbolName].get('tradeManager')
+        if trade_manager:
+            try:
+                trade_manager.stopVolatilityMonitoring()
+                logger.info(f"交易对 {symbolName} 的波动率监控已停止")
+            except Exception as e:
+                logger.error(f"停止交易对 {symbolName} 的波动率监控时出错: {e}")
+        
         exchange = symbol_managers[symbolName].get('exchange')
         if exchange:
             try:

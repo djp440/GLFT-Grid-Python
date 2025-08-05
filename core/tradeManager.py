@@ -5,6 +5,7 @@ from util.sLogger import logger
 from util import tradeUtil
 import asyncio
 from core.dataRecorder import data_recorder
+from core.volatilityManager import VolatilityManager
 import ccxt.pro
 from config.config import get_trade_config
 
@@ -58,6 +59,10 @@ class TradeManager:
         self.lastOrderCheckTime = None  # 最后一次订单检查时间
         self.noOrderTimeout = trade_config.NO_ORDER_TIMEOUT  # 无订单超时时间（秒）
         self.orderCheckInterval = trade_config.ORDER_CHECK_INTERVAL  # 订单检查间隔（秒）
+        
+        # 波动率管理器
+        self.volatilityManager = VolatilityManager(symbolName, wsExchange, self)
+        self.volatilityEnabled = True  # 是否启用波动率自动调节
 
     # 创建完对象后必须调用这个函数
     async def initSymbolInfo(self):
@@ -1024,3 +1029,53 @@ class TradeManager:
         except Exception as e:
             logger.error(f"{self.symbolName}刷新状态信息失败: {e}")
             raise e
+    
+    # 波动率管理相关方法
+    async def startVolatilityMonitoring(self):
+        """
+        启动波动率监控
+        """
+        if self.volatilityEnabled and self.volatilityManager:
+            try:
+                # 创建波动率监控任务
+                volatility_task = asyncio.create_task(self.volatilityManager.watch_kline())
+                logger.info(f"{self.symbolName}波动率监控已启动")
+                return volatility_task
+            except Exception as e:
+                logger.error(f"{self.symbolName}启动波动率监控失败: {e}")
+                return None
+        else:
+            logger.info(f"{self.symbolName}波动率监控已禁用")
+            return None
+    
+    def stopVolatilityMonitoring(self):
+        """
+        停止波动率监控
+        """
+        if self.volatilityManager:
+            self.volatilityManager.stop()
+            logger.info(f"{self.symbolName}波动率监控已停止")
+    
+    def setVolatilityEnabled(self, enabled: bool):
+        """
+        设置是否启用波动率自动调节
+        """
+        self.volatilityEnabled = enabled
+        logger.info(f"{self.symbolName}波动率自动调节已{'启用' if enabled else '禁用'}")
+    
+    def getVolatilityInfo(self) -> dict:
+        """
+        获取波动率信息
+        """
+        if self.volatilityManager:
+            info = self.volatilityManager.get_volatility_info()
+            info['enabled'] = self.volatilityEnabled
+            return info
+        else:
+            return {
+                'enabled': False,
+                'current_volatility': 0.0,
+                'atr_values': [],
+                'kline_count': 0,
+                'last_update_time': 0
+            }
