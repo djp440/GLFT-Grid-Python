@@ -5,19 +5,24 @@ from matplotlib.dates import DateFormatter
 import numpy as np
 from datetime import datetime
 import os
+import asyncio
 from typing import Dict, List
 from core.dataRecorder import data_recorder
 from util.sLogger import logger
 
 class ChartManager:
-    """静态图表生成器 - 在程序结束时生成综合图表"""
+    """图表生成器 - 支持定期生成运行中图表和最终图表"""
     
     def __init__(self):
         # 设置matplotlib中文字体
         plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS']
         plt.rcParams['axes.unicode_minus'] = False
         
-        logger.info("静态图表生成器初始化完成")
+        # 定期图表生成相关变量
+        self.periodic_task = None
+        self.is_running = False
+        
+        logger.info("图表生成器初始化完成")
     
     def generate_final_charts(self, output_dir="img"):
         """生成最终的综合图表"""
@@ -60,13 +65,84 @@ class ChartManager:
         except Exception as e:
             logger.error(f"生成图表时出错: {e}")
     
+    def generate_runtime_charts(self, output_dir="img"):
+        """生成运行中图表（固定文件名，会覆盖旧文件）"""
+        try:
+            # 创建输出目录
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+            
+            # 获取数据
+            account_data = data_recorder.get_account_data()
+            price_data = data_recorder.get_price_data()
+            summary = data_recorder.get_summary()
+            
+            if not account_data['timestamps'] and not price_data['symbols']:
+                logger.warning("没有数据可用于生成运行中图表")
+                return
+            
+            # 创建2x2的子图布局
+            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
+            fig.suptitle('交易运行中报告', fontsize=16, fontweight='bold')
+            
+            # 绘制各个图表
+            self._plot_equity_chart(ax1, account_data, summary)
+            self._plot_price_changes_chart(ax2, price_data)
+            self._plot_combined_chart(ax3, account_data, price_data, summary)
+            self._plot_volume_chart(ax4, summary)
+            
+            # 调整布局并保存
+            plt.tight_layout()
+            chart_path = os.path.join(output_dir, "runtime_report.png")
+            plt.savefig(chart_path, dpi=300, bbox_inches='tight')
+            plt.close()
+            
+            logger.info(f"运行中图表已更新: {chart_path}")
+        except Exception as e:
+            logger.error(f"生成运行中图表时出错: {e}")
+    
+    async def _periodic_chart_generation(self):
+        """定期生成运行中图表的异步任务"""
+        # 启动时立即生成一次运行中图表
+        try:
+            self.generate_runtime_charts()
+        except Exception as e:
+            logger.error(f"初始运行中图表生成失败: {e}")
+        
+        while self.is_running:
+            try:
+                await asyncio.sleep(300)  # 等待5分钟（300秒）
+                if self.is_running:  # 再次检查是否仍在运行
+                    self.generate_runtime_charts()
+            except asyncio.CancelledError:
+                logger.info("定期图表生成任务已取消")
+                break
+            except Exception as e:
+                logger.error(f"定期图表生成任务出错: {e}")
+                await asyncio.sleep(60)  # 出错后等待1分钟再重试
+    
     def start_charts(self):
-        """兼容性方法 - 不再启动实时图表"""
-        logger.info("实时图表功能已禁用，将在程序结束时生成静态图表")
+        """启动定期图表生成任务"""
+        if not self.is_running:
+            self.is_running = True
+            # 启动定期图表生成任务
+            loop = asyncio.get_event_loop()
+            self.periodic_task = loop.create_task(self._periodic_chart_generation())
+            logger.info("定期图表生成任务已启动，每5分钟更新一次运行中图表")
+        else:
+            logger.warning("图表生成任务已在运行中")
     
     def stop_charts(self):
-        """停止图表并生成最终报告"""
-        logger.info("生成最终交易报告图表...")
+        """停止定期图表生成任务并生成最终图表"""
+        self.is_running = False
+        
+        # 取消定期任务
+        if self.periodic_task and not self.periodic_task.done():
+            self.periodic_task.cancel()
+            logger.info("定期图表生成任务已停止")
+        
+        # 生成最终图表
+        logger.info("生成最终交易报告...")
         self.generate_final_charts()
     
     def _plot_equity_chart(self, ax, account_data, summary):

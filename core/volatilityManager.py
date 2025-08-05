@@ -3,6 +3,7 @@ import time
 from typing import List, Optional
 from util.sLogger import logger
 import ccxt.pro
+from config.config import get_volatility_config
 
 
 class VolatilityManager:
@@ -17,15 +18,18 @@ class VolatilityManager:
         self.tradeManager = tradeManager
         self.run = True
         
+        # 获取配置
+        self.config = get_volatility_config()
+        
         # ATR计算相关
-        self.atr_period = 10  # ATR周期
+        self.atr_period = self.config.ATR_PERIOD  # ATR周期
         self.kline_data: List[List[float]] = []  # 存储K线数据 [timestamp, open, high, low, close, volume]
         self.atr_values: List[float] = []  # 存储ATR值
         self.current_volatility = 0.0  # 当前波动率
         
         # 波动率更新相关
         self.last_update_time = 0
-        self.update_interval = 60  # 更新间隔（秒）
+        self.update_interval = self.config.UPDATE_INTERVAL  # 更新间隔（秒）
         
         logger.info(f"{self.symbolName}波动率管理器初始化完成")
     
@@ -44,13 +48,22 @@ class VolatilityManager:
         tr3 = abs(low - prev_close)
         return max(tr1, tr2, tr3)
     
-    def calculate_atr(self, true_ranges: List[float], period: int = 10) -> float:
+    def calculate_atr(self, true_ranges: List[float], period: int = None) -> float:
         """
         计算平均真实波幅(ATR)
-        使用简单移动平均
+        
+        Args:
+            true_ranges: 真实波幅列表
+            period: 计算周期，默认使用配置中的ATR_PERIOD
+            
+        Returns:
+            ATR值
         """
+        if period is None:
+            period = self.config.ATR_PERIOD
+            
         if len(true_ranges) < period:
-            return 0.0
+            return sum(true_ranges) / len(true_ranges) if true_ranges else 0.0
         
         return sum(true_ranges[-period:]) / period
     
@@ -65,19 +78,24 @@ class VolatilityManager:
     
     def update_kline_data(self, kline: List[float]):
         """
-        更新K线数据
-        kline格式: [timestamp, open, high, low, close, volume]
+        更新K线数据并计算波动率
+        
+        Args:
+            kline: K线数据 [timestamp, open, high, low, close, volume]
         """
-        # 添加新的K线数据
-        self.kline_data.append(kline)
-        
-        # 保持最多50根K线数据（足够计算ATR）
-        if len(self.kline_data) > 50:
-            self.kline_data.pop(0)
-        
-        # 如果有足够的数据，计算ATR和波动率
-        if len(self.kline_data) >= 2:
-            self._calculate_and_update_volatility()
+        try:
+            self.kline_data.append(kline)
+            
+            # 保持最多配置数量的K线数据
+            if len(self.kline_data) > self.config.MAX_KLINE_CACHE:
+                self.kline_data.pop(0)
+            
+            # 至少需要配置数量的K线才开始计算波动率
+            if len(self.kline_data) >= self.config.MIN_KLINE_COUNT:
+                self._calculate_and_update_volatility()
+                
+        except Exception as e:
+            logger.error(f"{self.symbolName}更新K线数据时发生错误: {e}")
     
     def _calculate_and_update_volatility(self):
         """
@@ -108,16 +126,23 @@ class VolatilityManager:
                 
                 # 计算波动率
                 current_price = self.kline_data[-1][4]  # 最新收盘价
-                volatility = self.calculate_volatility(atr, current_price)
+                new_volatility = self.calculate_volatility(atr, current_price)
                 
-                # 更新波动率
-                self.current_volatility = volatility
+                # 应用波动率平滑（如果启用）
+                if self.config.VOLATILITY_SMOOTHING and self.current_volatility > 0:
+                    # 使用指数移动平均进行平滑
+                    smoothing_factor = self.config.SMOOTHING_FACTOR
+                    self.current_volatility = (smoothing_factor * new_volatility + 
+                                             (1 - smoothing_factor) * self.current_volatility)
+                else:
+                    # 直接使用新计算的波动率
+                    self.current_volatility = new_volatility
                 
-                logger.info(f"{self.symbolName}波动率更新: ATR={atr:.6f}, 当前价格={current_price:.2f}, 波动率={volatility:.6f}")
+                logger.info(f"{self.symbolName}波动率更新: ATR={atr:.6f}, 当前价格={current_price:.2f}, 波动率={self.current_volatility:.6f}")
                 
                 # 更新TradeManager的价差参数
                 if self.tradeManager:
-                    self._update_trade_manager_spreads(volatility)
+                    self._update_trade_manager_spreads(self.current_volatility)
                     
         except Exception as e:
             logger.error(f"{self.symbolName}计算波动率时发生错误: {e}")
@@ -125,19 +150,17 @@ class VolatilityManager:
     def _update_trade_manager_spreads(self, volatility: float):
         """
         根据波动率更新TradeManager的价差参数
-        minSpread = 波动率 * 2
-        baseSpread = 波动率 * 4  
-        maxSpread = 波动率 * 16
+        使用配置中的倍数参数
         """
         try:
             # 计算新的价差参数（需要除以2，因为TradeManager内部会除以2）
-            new_min_spread = volatility * 2 * 2  # *2是倍数，*2是补偿TradeManager内部除法
-            new_base_spread = volatility * 4 * 2
-            new_max_spread = volatility * 16 * 2
+            new_min_spread = volatility * self.config.MIN_SPREAD_MULTIPLIER * 2
+            new_base_spread = volatility * self.config.BASE_SPREAD_MULTIPLIER * 2
+            new_max_spread = volatility * self.config.MAX_SPREAD_MULTIPLIER * 2
             
-            # 设置合理的最小值和最大值
-            min_allowed = 0.0002  # 最小0.02%
-            max_allowed = 0.1     # 最大10%
+            # 使用配置中的价差限制
+            min_allowed = self.config.MIN_ALLOWED_SPREAD
+            max_allowed = self.config.MAX_ALLOWED_SPREAD
             
             new_min_spread = max(min_allowed, min(max_allowed, new_min_spread))
             new_base_spread = max(new_min_spread, min(max_allowed, new_base_spread))
@@ -162,16 +185,17 @@ class VolatilityManager:
     
     async def watch_kline(self):
         """
-        监听1分钟K线数据
+        监听K线数据
+        使用配置中的时间框架
         """
-        logger.info(f"{self.symbolName}波动率监控模块启动，开始监听1分钟K线数据")
+        logger.info(f"{self.symbolName}波动率监控模块启动，开始监听{self.config.KLINE_TIMEFRAME}K线数据")
         
         # 首先获取历史K线数据用于初始化
         try:
             logger.info(f"{self.symbolName}获取历史K线数据进行初始化...")
             historical_data = await self.wsExchange.fetch_ohlcv(
                 symbol=self.symbolName,
-                timeframe='1m',
+                timeframe=self.config.KLINE_TIMEFRAME,
                 limit=20  # 获取20根K线用于初始化
             )
             
@@ -187,7 +211,7 @@ class VolatilityManager:
         while self.run:
             try:
                 # 使用websocket监听K线数据
-                ohlcv_data = await self.wsExchange.watch_ohlcv(self.symbolName, '1m')
+                ohlcv_data = await self.wsExchange.watch_ohlcv(self.symbolName, self.config.KLINE_TIMEFRAME)
                 
                 if ohlcv_data:
                     # 获取最新的K线数据

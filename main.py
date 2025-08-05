@@ -311,7 +311,7 @@ async def main_async():
     try:
         # 根据配置决定是否启动图表管理器
         if enable_charts:
-            logger.info("启动实时监控图表...")
+            logger.info("启动图表管理器...")
             chart_manager.start_charts()
         else:
             logger.info("图表功能已禁用，跳过图表启动")
