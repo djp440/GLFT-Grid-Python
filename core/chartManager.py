@@ -1,234 +1,181 @@
 import matplotlib
-matplotlib.use('TkAgg')  # 设置后端
+matplotlib.use('Agg')  # 设置为非交互式后端
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 from matplotlib.dates import DateFormatter
 import numpy as np
 from datetime import datetime
-import threading
-import time
-import queue
+import os
 from typing import Dict, List
-from util.sLogger import logger
 from core.dataRecorder import data_recorder
-from config.config import get_chart_config
+from util.sLogger import logger
 
 class ChartManager:
-    """图表管理器 - 使用非阻塞方式显示实时图表"""
+    """静态图表生成器 - 在程序结束时生成综合图表"""
     
-    def __init__(self, update_interval=None):  # 更新间隔从配置文件读取
-        # 从配置文件读取配置项
-        chart_config = get_chart_config()
-        
-        if update_interval is None:
-            self.update_interval = chart_config.CHART_UPDATE_INTERVAL * 1000  # 转换为毫秒
-        else:
-            self.update_interval = update_interval
-        self.running = False
-        self.fig = None
-        self.axes = None
-        self.lines = {}
-        self.text_labels = {}  # 存储文本标签引用
-        self.animation = None
-        self.last_data_count = 0  # 记录上次数据数量，避免不必要的重绘
-        
-        # 设置matplotlib中文字体和交互模式
+    def __init__(self):
+        # 设置matplotlib中文字体
         plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS']
         plt.rcParams['axes.unicode_minus'] = False
-        plt.rcParams['figure.dpi'] = 100  # 设置合适的DPI
-        plt.ion()  # 开启交互模式
         
-        logger.info("图表管理器初始化完成")
+        logger.info("静态图表生成器初始化完成")
     
-    def start_charts(self):
-        """启动图表显示"""
-        if self.running:
-            logger.warning("图表已在运行中")
-            return
-        
+    def generate_final_charts(self, output_dir="img"):
+        """生成最终的综合图表"""
         try:
-            self.running = True
+            # 创建输出目录
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+                logger.info(f"创建图表输出目录: {output_dir}")
             
-            # 创建图表窗口 - 从配置文件读取尺寸
-            chart_config = get_chart_config()
-            figsize = (chart_config.CHART_WIDTH / 100, chart_config.CHART_HEIGHT / 100)  # 转换为英寸
-            self.fig, self.axes = plt.subplots(2, 1, figsize=figsize)
-            self.fig.suptitle('GLFT网格交易实时监控', fontsize=14, fontweight='bold')
-            
-            # 设置窗口位置和大小
-            mngr = self.fig.canvas.manager
-            mngr.window.wm_geometry("+100+100")  # 设置窗口位置
-            
-            # 设置子图
-            self._setup_subplots()
-            
-            # 创建动画
-            self.animation = animation.FuncAnimation(
-                self.fig, 
-                self._update_charts, 
-                interval=self.update_interval,
-                blit=False,
-                cache_frame_data=False
-            )
-            
-            # 显示图表
-            plt.tight_layout()
-            plt.show(block=False)  # 非阻塞显示
-            plt.pause(0.1)  # 短暂暂停以确保窗口显示
-            
-            logger.info("图表已启动")
-            
-        except Exception as e:
-            logger.error(f"启动图表时出错: {e}")
-            self.running = False
-    
-    def stop_charts(self):
-        """停止图表显示"""
-        self.running = False
-        try:
-            if self.animation:
-                self.animation.event_source.stop()
-            if self.fig:
-                plt.close(self.fig)
-            plt.ioff()  # 关闭交互模式
-            logger.info("图表已停止")
-        except Exception as e:
-            logger.error(f"停止图表时出错: {e}")
-    
-    def update_display(self):
-        """手动更新显示（用于非动画模式）"""
-        if self.fig and self.running:
-            try:
-                plt.pause(0.01)  # 短暂暂停以更新显示
-            except Exception as e:
-                logger.error(f"更新显示时出错: {e}")
-    
-    def _setup_subplots(self):
-        """设置子图"""
-        # 第一个子图：账户权益相关
-        ax1 = self.axes[0]
-        ax1.set_title('账户权益监控', fontsize=12, fontweight='bold')
-        ax1.set_xlabel('时间', fontsize=10)
-        ax1.set_ylabel('USDT', fontsize=10)
-        ax1.grid(True, alpha=0.3)
-        ax1.tick_params(labelsize=9)
-        
-        # 第二个子图：成交量
-        ax2 = self.axes[1]
-        ax2.set_title('累计成交量', fontsize=12, fontweight='bold')
-        ax2.set_xlabel('时间', fontsize=10)
-        ax2.set_ylabel('成交量', fontsize=10)
-        ax2.grid(True, alpha=0.3)
-        ax2.tick_params(labelsize=9)
-        
-        # 初始化线条
-        self.lines['equity'], = ax1.plot([], [], 'b-', linewidth=1.5, label='账户权益', alpha=0.8)
-        self.lines['total_fee'], = ax1.plot([], [], 'r-', linewidth=1.5, label='累计手续费', alpha=0.8)
-        self.lines['equity_plus_half_fee'], = ax1.plot([], [], 'g-', linewidth=1.5, label='权益+50%手续费', alpha=0.8)
-        self.lines['volume'], = ax2.plot([], [], 'm-', linewidth=1.5, label='累计成交量', alpha=0.8)
-        
-        # 设置图例
-        ax1.legend(loc='upper left', fontsize=9)
-        ax2.legend(loc='upper left', fontsize=9)
-        
-        # 初始化文本标签（避免重复创建）
-        self.text_labels['equity'] = ax1.text(0.02, 0.98, '', transform=ax1.transAxes, 
-                                            fontsize=9, verticalalignment='top',
-                                            bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
-        self.text_labels['fee'] = ax1.text(0.02, 0.90, '', transform=ax1.transAxes, 
-                                         fontsize=9, verticalalignment='top',
-                                         bbox=dict(boxstyle='round', facecolor='lightcoral', alpha=0.8))
-        self.text_labels['equity_plus_fee'] = ax1.text(0.02, 0.82, '', transform=ax1.transAxes, 
-                                                      fontsize=9, verticalalignment='top',
-                                                      bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.8))
-        self.text_labels['volume'] = ax2.text(0.02, 0.98, '', transform=ax2.transAxes, 
-                                             fontsize=9, verticalalignment='top',
-                                             bbox=dict(boxstyle='round', facecolor='plum', alpha=0.8))
-    
-    def _update_charts(self, frame):
-        """更新图表数据 - 优化性能版本"""
-        if not self.running:
-            return
-        
-        try:
             # 获取数据
             account_data = data_recorder.get_account_data()
-            
-            if not account_data['timestamps']:
-                return
-            
-            # 检查数据是否有变化，避免不必要的重绘
-            current_data_count = len(account_data['timestamps'])
-            if current_data_count == self.last_data_count and current_data_count > 0:
-                return
-            
-            self.last_data_count = current_data_count
-            
-            # 转换时间戳为datetime对象
-            timestamps = [datetime.fromtimestamp(ts) for ts in account_data['timestamps']]
-            
-            # 更新线条数据
-            self.lines['equity'].set_data(timestamps, account_data['equity'])
-            self.lines['total_fee'].set_data(timestamps, account_data['total_fee'])
-            self.lines['equity_plus_half_fee'].set_data(timestamps, account_data['equity_plus_half_fee'])
-            self.lines['volume'].set_data(timestamps, account_data['total_volume'])
-            
-            # 只在有足够数据时才调整坐标轴（减少频繁调整）
-            if len(timestamps) > 5:
-                for ax in self.axes:
-                    ax.relim()
-                    ax.autoscale_view(tight=True)
-            
-            # 优化时间轴格式化（减少频率）
-            if len(timestamps) > 1 and current_data_count % 5 == 0:  # 每5次更新才格式化一次
-                time_span = timestamps[-1] - timestamps[0]
-                if time_span.total_seconds() < 3600:  # 小于1小时
-                    date_format = DateFormatter('%H:%M:%S')
-                elif time_span.total_seconds() < 86400:  # 小于1天
-                    date_format = DateFormatter('%H:%M')
-                else:
-                    date_format = DateFormatter('%m-%d %H:%M')
-                
-                for ax in self.axes:
-                    ax.xaxis.set_major_formatter(date_format)
-                    plt.setp(ax.xaxis.get_majorticklabels(), rotation=30, fontsize=8)
-            
-            # 更新图表标题
+            price_data = data_recorder.get_price_data()
             summary = data_recorder.get_summary()
-            title_text = f'GLFT网格交易实时监控 - 权益: {summary["current_equity"]:.2f} USDT | 总手续费: {summary["total_fee"]:.4f} USDT | 总成交量: {summary["total_volume"]:.2f}'
-            self.fig.suptitle(title_text, fontsize=11)
             
-            # 更新文本标签（使用预创建的标签，避免重复创建）
-            if account_data['equity']:
-                latest_equity = account_data['equity'][-1]
-                latest_fee = account_data['total_fee'][-1]
-                latest_equity_plus_half_fee = account_data['equity_plus_half_fee'][-1]
-                latest_volume = account_data['total_volume'][-1]
-                
-                # 更新文本内容而不是重新创建
-                self.text_labels['equity'].set_text(f'当前权益: {latest_equity:.2f} USDT')
-                self.text_labels['fee'].set_text(f'累计手续费: {latest_fee:.4f} USDT')
-                self.text_labels['equity_plus_fee'].set_text(f'权益+50%手续费: {latest_equity_plus_half_fee:.2f} USDT')
-                self.text_labels['volume'].set_text(f'累计成交量: {latest_volume:.2f}')
+            if not account_data['timestamps'] and not price_data['symbols']:
+                 logger.warning("没有数据可用于生成图表")
+                 return
+            
+            # 创建2x2的子图布局
+            fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+            fig.suptitle('GLFT网格交易运行报告', fontsize=16, fontweight='bold')
+            
+            # 生成各个图表
+            self._plot_equity_chart(axes[0, 0], account_data, summary)
+            self._plot_price_changes_chart(axes[0, 1], price_data)
+            self._plot_combined_chart(axes[1, 0], account_data, price_data, summary)
+            self._plot_volume_chart(axes[1, 1], summary)
+            
+            # 调整布局
+            plt.tight_layout()
+            
+            # 保存图表
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = os.path.join(output_dir, f'trading_report_{timestamp}.png')
+            fig.savefig(filename, dpi=300, bbox_inches='tight', facecolor='white')
+            plt.close(fig)
+            
+            logger.info(f"交易报告图表已保存: {filename}")
             
         except Exception as e:
-            logger.error(f"更新图表时出错: {e}")
+            logger.error(f"生成图表时出错: {e}")
+    
+    def start_charts(self):
+        """兼容性方法 - 不再启动实时图表"""
+        logger.info("实时图表功能已禁用，将在程序结束时生成静态图表")
+    
+    def stop_charts(self):
+        """停止图表并生成最终报告"""
+        logger.info("生成最终交易报告图表...")
+        self.generate_final_charts()
+    
+    def _plot_equity_chart(self, ax, account_data, summary):
+        """绘制账户权益变化图表"""
+        ax.set_title('账户权益变化', fontsize=12, fontweight='bold')
+        ax.set_xlabel('时间')
+        ax.set_ylabel('USDT权益')
+        ax.grid(True, alpha=0.3)
+        
+        if account_data['timestamps']:
+            times = [datetime.fromtimestamp(ts) for ts in account_data['timestamps']]
+            ax.plot(times, account_data['equity'], 'b-', linewidth=2, label='权益')
+            
+            # 添加统计信息
+            initial_equity = summary.get('initial_equity', 0)
+            current_equity = account_data['equity'][-1] if account_data['equity'] else 0
+            change = current_equity - initial_equity
+            change_pct = (change / initial_equity * 100) if initial_equity > 0 else 0
+            
+            info_text = f'初始权益: {initial_equity:.2f} USDT\n当前权益: {current_equity:.2f} USDT\n变化: {change:+.2f} USDT ({change_pct:+.2f}%)'
+            ax.text(0.02, 0.98, info_text, transform=ax.transAxes, verticalalignment='top',
+                   bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+        
+        ax.legend()
+        
+    def _plot_price_changes_chart(self, ax, price_data):
+        """绘制交易对价格变化百分比图表"""
+        ax.set_title('交易对价格变化 (%)', fontsize=12, fontweight='bold')
+        ax.set_xlabel('时间')
+        ax.set_ylabel('价格变化百分比 (%)')
+        ax.grid(True, alpha=0.3)
+        
+        colors = ['red', 'green', 'blue', 'orange', 'purple', 'brown', 'pink', 'gray']
+        
+        for i, symbol in enumerate(price_data['symbols']):
+             if symbol in price_data['timestamps'] and price_data['timestamps'][symbol]:
+                 times = [datetime.fromtimestamp(ts) for ts in price_data['timestamps'][symbol]]
+                 price_changes = price_data['price_changes_percent'][symbol]
+                 color = colors[i % len(colors)]
+                 ax.plot(times, price_changes, color=color, linewidth=2, label=symbol)
+        
+        ax.legend()
+        ax.axhline(y=0, color='black', linestyle='--', alpha=0.5)
+        
+    def _plot_combined_chart(self, ax, account_data, price_data, summary):
+        """绘制权益和价格变化合并图表"""
+        ax.set_title('权益与价格变化对比 (%)', fontsize=12, fontweight='bold')
+        ax.set_xlabel('时间')
+        ax.set_ylabel('变化百分比 (%)')
+        ax.grid(True, alpha=0.3)
+        
+        # 绘制权益变化百分比
+        if account_data['timestamps']:
+            initial_equity = summary.get('initial_equity', 0)
+            if initial_equity > 0:
+                times = [datetime.fromtimestamp(ts) for ts in account_data['timestamps']]
+                equity_pct = [(eq - initial_equity) / initial_equity * 100 for eq in account_data['equity']]
+                ax.plot(times, equity_pct, 'b-', linewidth=3, label='权益变化', alpha=0.8)
+        
+        # 绘制价格变化百分比
+        colors = ['red', 'green', 'orange', 'purple', 'brown']
+        for i, symbol in enumerate(price_data['symbols']):
+            if symbol in price_data['timestamps'] and price_data['timestamps'][symbol]:
+                times = [datetime.fromtimestamp(ts) for ts in price_data['timestamps'][symbol]]
+                price_changes = price_data['price_changes_percent'][symbol]
+                color = colors[i % len(colors)]
+                ax.plot(times, price_changes, color=color, linewidth=2, 
+                       label=f'{symbol}价格', alpha=0.7, linestyle='--')
+        
+        ax.legend()
+        ax.axhline(y=0, color='black', linestyle='--', alpha=0.5)
+        
+    def _plot_volume_chart(self, ax, summary):
+        """绘制交易额统计图表"""
+        ax.set_title('交易额统计', fontsize=12, fontweight='bold')
+        
+        # 显示总体统计
+        total_volume = summary.get('total_volume', 0)
+        total_trades = summary.get('total_trades', 0)
+        total_fees = summary.get('total_fees', 0)
+        
+        # 创建简单的统计显示
+        stats = [
+            f'总交易次数: {total_trades}',
+            f'总交易额: {total_volume:.2f} USDT',
+            f'总手续费: {total_fees:.2f} USDT',
+            f'平均每笔: {total_volume/total_trades:.2f} USDT' if total_trades > 0 else '平均每笔: 0 USDT'
+        ]
+        
+        # 移除坐标轴
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['bottom'].set_visible(False)
+        ax.spines['left'].set_visible(False)
+        
+        # 显示统计信息
+        stats_text = '\n'.join(stats)
+        ax.text(0.5, 0.5, stats_text, transform=ax.transAxes, 
+               horizontalalignment='center', verticalalignment='center',
+               fontsize=14, bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.8))
+    
+
     
     def save_chart(self, filename=None):
-        """保存当前图表"""
-        if self.fig is None:
-            logger.warning("图表未初始化，无法保存")
-            return
-        
-        if filename is None:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f'trading_chart_{timestamp}.png'
-        
-        try:
-            self.fig.savefig(filename, dpi=300, bbox_inches='tight')
-            logger.info(f"图表已保存为: {filename}")
-        except Exception as e:
-            logger.error(f"保存图表失败: {e}")
+        """兼容性方法 - 现在通过generate_final_charts生成图表"""
+        logger.info("请使用generate_final_charts方法生成最终报告")
+        self.generate_final_charts()
 
 # 全局图表管理器实例
 chart_manager = ChartManager()

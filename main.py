@@ -220,11 +220,11 @@ async def cleanup_resources():
     """清理所有资源"""
     global symbol_managers, symbol_tasks
 
-    # 停止图表管理器（如果启用了图表功能）
+    # 停止图表管理器并生成最终报告（如果启用了图表功能）
     try:
         if enable_charts:
-            chart_manager.stop_charts()
-            logger.info("图表管理器已停止")
+            chart_manager.stop_charts()  # 这会生成最终图表
+            logger.info("图表管理器已停止，最终报告已生成")
         data_recorder.stop()
         logger.info("数据记录器已停止")
     except Exception as e:

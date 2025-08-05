@@ -26,17 +26,27 @@ class AccountSnapshot:
     total_volume: float
     equity_plus_half_fee: float
 
+@dataclass
+class PriceSnapshot:
+    """价格快照数据结构"""
+    timestamp: float
+    symbol: str
+    price: float
+
 class DataRecorder:
     """实时数据记录器"""
     
     def __init__(self):
         self.trade_records: List[TradeRecord] = []
         self.account_snapshots: List[AccountSnapshot] = []
+        self.price_snapshots: List[PriceSnapshot] = []  # 价格快照列表
         self.symbol_volumes: Dict[str, float] = {}  # 每个交易对的累计成交量
         self.symbol_fees: Dict[str, float] = {}     # 每个交易对的累计手续费
+        self.symbol_initial_prices: Dict[str, float] = {}  # 每个交易对的初始价格
         self.total_volume: float = 0.0
         self.total_fee: float = 0.0
         self.current_equity: float = 0.0
+        self.initial_equity: float = 0.0  # 初始权益
         self.lock = asyncio.Lock()
         self.running = True
         
@@ -82,9 +92,34 @@ class DataRecorder:
             # 触发数据更新回调
             await self._trigger_callbacks()
     
+    async def record_price(self, symbol: str, price: float):
+        """记录价格数据"""
+        async with self.lock:
+            # 记录初始价格（如果是第一次记录该交易对）
+            if symbol not in self.symbol_initial_prices:
+                self.symbol_initial_prices[symbol] = price
+                logger.info(f"记录{symbol}初始价格: {price:.2f}")
+            
+            # 创建价格快照
+            price_snapshot = PriceSnapshot(
+                timestamp=time.time(),
+                symbol=symbol,
+                price=price
+            )
+            
+            self.price_snapshots.append(price_snapshot)
+            
+            # 触发回调
+            await self._trigger_callbacks()
+
     async def update_equity(self, equity: float):
         """更新账户权益"""
         async with self.lock:
+            # 记录初始权益（如果是第一次更新）
+            if self.initial_equity == 0.0:
+                self.initial_equity = equity
+                logger.info(f"记录初始权益: {equity:.2f} USDT")
+            
             self.current_equity = equity
             
             # 创建账户快照
@@ -147,6 +182,48 @@ class DataRecorder:
             'total_volume': total_volume
         }
     
+    def get_price_data(self) -> Dict:
+        """获取价格数据用于绘图"""
+        if not self.price_snapshots:
+            return {
+                'symbols': [],
+                'timestamps': {},
+                'prices': {},
+                'price_changes_percent': {},
+                'initial_prices': self.symbol_initial_prices.copy()
+            }
+        
+        # 按交易对分组价格数据
+        symbol_data = {}
+        for snapshot in self.price_snapshots:
+            if snapshot.symbol not in symbol_data:
+                symbol_data[snapshot.symbol] = {
+                    'timestamps': [],
+                    'prices': []
+                }
+            symbol_data[snapshot.symbol]['timestamps'].append(snapshot.timestamp)
+            symbol_data[snapshot.symbol]['prices'].append(snapshot.price)
+        
+        # 计算价格变化百分比
+        price_changes_percent = {}
+        for symbol, data in symbol_data.items():
+            if symbol in self.symbol_initial_prices and self.symbol_initial_prices[symbol] > 0:
+                initial_price = self.symbol_initial_prices[symbol]
+                price_changes_percent[symbol] = [
+                    ((price - initial_price) / initial_price) * 100 
+                    for price in data['prices']
+                ]
+            else:
+                price_changes_percent[symbol] = [0.0] * len(data['prices'])
+        
+        return {
+            'symbols': list(symbol_data.keys()),
+            'timestamps': {symbol: data['timestamps'] for symbol, data in symbol_data.items()},
+            'prices': {symbol: data['prices'] for symbol, data in symbol_data.items()},
+            'price_changes_percent': price_changes_percent,
+            'initial_prices': self.symbol_initial_prices.copy()
+        }
+
     def get_summary(self) -> Dict:
         """获取数据摘要"""
         return {
@@ -154,6 +231,7 @@ class DataRecorder:
             'total_volume': self.total_volume,
             'total_fee': self.total_fee,
             'current_equity': self.current_equity,
+            'initial_equity': self.initial_equity,
             'symbol_volumes': self.symbol_volumes.copy(),
             'symbol_fees': self.symbol_fees.copy()
         }

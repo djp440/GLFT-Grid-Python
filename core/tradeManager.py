@@ -333,6 +333,12 @@ class TradeManager:
     async def updateLastPrice(self, lastPrice: float):
         if self.lastPrice != lastPrice:
             self.lastPrice = lastPrice
+            
+            # 记录价格数据到数据记录器
+            try:
+                await data_recorder.record_price(self.symbolName, lastPrice)
+            except Exception as e:
+                logger.error(f"{self.symbolName}记录价格数据时发生错误: {e}")
 
         # 初始化价格触发冷却时间
         if not hasattr(self, '_last_price_trigger_time'):
