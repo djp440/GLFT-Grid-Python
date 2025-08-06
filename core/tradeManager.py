@@ -170,6 +170,10 @@ class TradeManager:
 
         logger.info(f"{self.symbolName}处理订单成交事件，成交订单数量: {len(filled_orders)}")
 
+        # 清空当前挂单列表，因为它们已经成交
+        logger.info(f"{self.symbolName}订单成交，清空本地挂单列表: {len(self.openOrders)} -> 0")
+        self.openOrders = []
+
         # 使用性能监控器测量整个订单处理延迟
         monitor = get_performance_monitor()
         
