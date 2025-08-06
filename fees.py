@@ -4,11 +4,12 @@ import ccxt
 import os
 import datetime
 import time
+import sys
 from dotenv import load_dotenv
 
-def calculate_total_fees():
+def calculate_total_fees(symbol: str):
     """
-    连接交易所，获取指定时间后的所有合约成交记录，并统计手续费。
+    连接交易所，获取指定交易对在指定时间后的所有成交记录，并统计手续费。
     """
     # --- 1. 加载和设置 ---
     
@@ -70,13 +71,12 @@ def calculate_total_fees():
         total_fees = {}  # 使用字典来分别统计不同币种的手续费, e.g., {'USDT': 10.5}
 
         try:
-            print("正在一次性获取所有合约成交记录 (这可能需要一些时间)...")
-            # 注意：大部分交易所支持不带 symbol 参数来获取全部交易记录。
-            # 如果记录数量超过交易所单次返回的上限 (e.g., 1000), 可能需要自行实现分页逻辑来获取完整历史。
-            all_trades = exchange.fetch_my_trades(since=since_timestamp, limit=1000)
+            print(f"正在获取交易对 {symbol} 的成交记录...")
+            # 注意：如果记录数量超过交易所单次返回的上限 (e.g., 1000), 可能需要自行实现分页逻辑来获取完整历史。
+            all_trades = exchange.fetch_my_trades(symbol=symbol, since=since_timestamp, limit=1000)
 
             if all_trades:
-                print(f"成功获取到 {len(all_trades)} 条成交记录。开始统计手续费...")
+                print(f"在 {symbol} 发现 {len(all_trades)} 条成交记录。开始统计手续费...")
                 for trade in all_trades:
                     # 检查订单信息中是否包含手续费(fee)字段
                     if 'fee' in trade and trade['fee'] is not None and trade['fee'].get('cost') is not None and trade['fee'].get('currency'):
@@ -104,7 +104,7 @@ def calculate_total_fees():
         print("="*40)
         
         if not total_fees:
-            print("在指定时间段内没有找到任何已付手续费的成交记录。")
+            print(f"在指定时间段内没有找到 {symbol} 的任何已付手续费的成交记录。")
         else:
             print("总计手续费如下：")
             for currency, amount in total_fees.items():
@@ -121,4 +121,12 @@ def calculate_total_fees():
 
 # 运行主函数
 if __name__ == "__main__":
-    calculate_total_fees()
+    # 从命令行参数获取交易对名称
+    if len(sys.argv) < 2:
+        print("错误：请在运行脚本时提供交易对名称。")
+        print("用法: python fees.py <SYMBOL>")
+        print("示例: python fees.py BTC/USDT:USDT")
+        sys.exit(1)
+        
+    target_symbol = sys.argv[1]
+    calculate_total_fees(symbol=target_symbol)
