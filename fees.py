@@ -5,48 +5,60 @@ import os
 import datetime
 import time
 import sys
+import json
 from dotenv import load_dotenv
 
-def calculate_total_fees(symbol: str):
+def calculate_total_fees(symbols: list):
     """
     连接交易所，获取指定交易对在指定时间后的所有成交记录，并统计手续费。
     """
     # --- 1. 加载和设置 ---
     
-    # 从 .env 文件加载环境变量 (API_KEY, API_SECRET)
+    # --- 1. 加载和设置 ---
     load_dotenv()
-    api_key = os.getenv('apiKey')
-    api_secret = os.getenv('secret')
-    # Bitget 可能需要密码 (passphrase)，如果你的 API 密钥有这个设置，请在 .env 文件中添加
-    passphrase = os.getenv('password') 
+
+    # 根据 .env 中的 sandbox 设置决定使用实盘还是模拟盘
+    is_sandbox = os.getenv('sandbox', 'false').lower() == 'true'
+
+    if is_sandbox:
+        print("*** 正在使用模拟盘环境 ***")
+        api_key = os.getenv('sandbox_apiKey')
+        api_secret = os.getenv('sandbox_secret')
+        passphrase = os.getenv('sandbox_password')
+    else:
+        print("*** 正在使用实盘环境 ***")
+        api_key = os.getenv('apiKey')
+        api_secret = os.getenv('secret')
+        passphrase = os.getenv('password')
 
     if not api_key or not api_secret:
-        print("错误：请确保 .env 文件中已设置 EXCHANGE_API_KEY 和 EXCHANGE_API_SECRET。")
+        env_type = "模拟盘" if is_sandbox else "实盘"
+        print(f"错误：请确保 .env 文件中已为 {env_type} 环境设置了对应的 API Key 和 Secret。")
         return
 
     # --- 2. 配置交易所 ---
-    
-    # 已为你修改为 Bitget
-    exchange_id = 'bitget' 
-    
+    exchange_id = 'bitget'
     try:
         exchange_class = getattr(ccxt, exchange_id)
     except AttributeError:
-        print(f"错误：找不到交易所 '{exchange_id}'。请检查 ccxt 是否支持该交易所，或 ID 是否拼写正确。")
+        print(f"错误：找不到交易所 '{exchange_id}'。")
         return
-        
+
     config = {
         'apiKey': api_key,
         'secret': api_secret,
         'options': {
-            'defaultType': 'swap',  # Bitget 使用 'swap' 来表示合约
+            'defaultType': 'swap',
         },
     }
-    # 如果有密码，则添加到配置中
     if passphrase:
         config['password'] = passphrase
-        
+
     exchange = exchange_class(config)
+
+    # 设置模拟盘
+    if is_sandbox:
+        exchange.set_sandbox_mode(True)
 
     # --- 3. 设置起始时间 ---
     
@@ -68,34 +80,31 @@ def calculate_total_fees(symbol: str):
             print(f"错误：交易所 '{exchange_id}' 不支持 fetchMyTrades 方法，无法获取个人成交记录。")
             return
 
-        total_fees = {}  # 使用字典来分别统计不同币种的手续费, e.g., {'USDT': 10.5}
+        total_fees = {}  # 使用字典来分别统计不同币种的手续费
 
-        try:
-            print(f"正在获取交易对 {symbol} 的成交记录...")
-            # 注意：如果记录数量超过交易所单次返回的上限 (e.g., 1000), 可能需要自行实现分页逻辑来获取完整历史。
-            all_trades = exchange.fetch_my_trades(symbol=symbol, since=since_timestamp, limit=1000)
+        for i, symbol in enumerate(symbols):
+            try:
+                print(f"[{i+1}/{len(symbols)}] 正在获取交易对 {symbol} 的成交记录...")
+                # 注意：如果记录数量超过交易所单次返回的上限 (e.g., 1000), 可能需要自行实现分页逻辑来获取完整历史。
+                trades = exchange.fetch_my_trades(symbol=symbol, since=since_timestamp, limit=1000)
 
-            if all_trades:
-                print(f"在 {symbol} 发现 {len(all_trades)} 条成交记录。开始统计手续费...")
-                for trade in all_trades:
-                    # 检查订单信息中是否包含手续费(fee)字段
-                    if 'fee' in trade and trade['fee'] is not None and trade['fee'].get('cost') is not None and trade['fee'].get('currency'):
-                        fee_cost = trade['fee']['cost']
-                        fee_currency = trade['fee']['currency']
-                        
-                        # 累加手续费
-                        total_fees[fee_currency] = total_fees.get(fee_currency, 0) + fee_cost
-        
-        except ccxt.NetworkError as e:
-            print(f"获取成交记录时发生网络错误: {e}，请检查网络连接。")
-            return
-        except ccxt.ExchangeError as e:
-            print(f"获取成交记录时交易所返回错误: {e}。")
-            print("请检查API密钥权限或交易所是否支持此操作。")
-            return
-        except Exception as e:
-            print(f"处理成交记录时发生未知错误: {e}")
-            return
+                if trades:
+                    print(f"  -> 在 {symbol} 发现 {len(trades)} 条成交记录，正在处理...")
+                    for trade in trades:
+                        if 'fee' in trade and trade['fee'] is not None and trade['fee'].get('cost') is not None and trade['fee'].get('currency'):
+                            fee_cost = trade['fee']['cost']
+                            fee_currency = trade['fee']['currency']
+                            total_fees[fee_currency] = total_fees.get(fee_currency, 0) + fee_cost
+                
+                # 防止API请求过于频繁
+                time.sleep(exchange.rateLimit / 1000)
+
+            except ccxt.NetworkError as e:
+                print(f"查询 {symbol} 时发生网络错误: {e}，跳过此交易对。")
+            except ccxt.ExchangeError as e:
+                print(f"查询 {symbol} 时交易所返回错误: {e}，跳过此交易对。")
+            except Exception as e:
+                print(f"查询 {symbol} 时发生未知错误: {e}，跳过此交易对。")
 
         # --- 5. 显示结果 ---
         
@@ -104,7 +113,7 @@ def calculate_total_fees(symbol: str):
         print("="*40)
         
         if not total_fees:
-            print(f"在指定时间段内没有找到 {symbol} 的任何已付手续费的成交记录。")
+            print("在指定时间段内没有找到任何已付手续费的成交记录。")
         else:
             print("总计手续费如下：")
             for currency, amount in total_fees.items():
@@ -121,12 +130,26 @@ def calculate_total_fees(symbol: str):
 
 # 运行主函数
 if __name__ == "__main__":
-    # 从命令行参数获取交易对名称
-    if len(sys.argv) < 2:
-        print("错误：请在运行脚本时提供交易对名称。")
-        print("用法: python fees.py <SYMBOL>")
-        print("示例: python fees.py BTC/USDT:USDT")
-        sys.exit(1)
+    try:
+        with open('config/symbols.json', 'r') as f:
+            symbols_config = json.load(f)
         
-    target_symbol = sys.argv[1]
-    calculate_total_fees(symbol=target_symbol)
+        # 筛选出所有启用的交易对
+        enabled_symbols = [s for s, c in symbols_config.items() if c.get('enabled', False)]
+
+        if not enabled_symbols:
+            print("错误：在 config/symbols.json 中没有找到任何启用的 ('enabled': true) 交易对。")
+            sys.exit(1)
+
+        print(f"将要查询以下 {len(enabled_symbols)} 个交易对的费用: {', '.join(enabled_symbols)}")
+        calculate_total_fees(symbols=enabled_symbols)
+
+    except FileNotFoundError:
+        print("错误：找不到配置文件 'config/symbols.json'。")
+        sys.exit(1)
+    except json.JSONDecodeError:
+        print("错误：配置文件 'config/symbols.json' 格式不正确。")
+        sys.exit(1)
+    except Exception as e:
+        print(f"启动脚本时发生未知错误: {e}")
+        sys.exit(1)
