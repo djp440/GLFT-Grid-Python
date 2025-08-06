@@ -36,7 +36,7 @@ class GlobalConfig:
         DEFAULT_BASE_SPREAD = 0.001         # 默认基础价差
         DEFAULT_MIN_SPREAD = 0.0008         # 默认最小价差
         DEFAULT_MAX_SPREAD = 0.003          # 默认最大价差
-        DEFAULT_ORDER_COOL_DOWN = 0.1       # 默认下单冷却时间（秒）
+        DEFAULT_ORDER_COOL_DOWN = 0.05      # 默认下单冷却时间（秒）- 优化后减少延迟
         DEFAULT_MAX_STOCK_RATIO = 0.25      # 默认最大持仓比例
         DEFAULT_ORDER_AMOUNT_RATIO = 0.05   # 默认订单金额比例
         DEFAULT_COIN = 'USDT'               # 默认计价币种

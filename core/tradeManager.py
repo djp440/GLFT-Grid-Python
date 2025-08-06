@@ -1,11 +1,13 @@
 from decimal import Decimal
 import sys
+import time
 from turtle import up
 from util.sLogger import logger
 from util import tradeUtil
 import asyncio
 from core.dataRecorder import data_recorder
 from core.volatilityManager import VolatilityManager
+from util.performanceMonitor import get_performance_monitor, LatencyTracker
 import ccxt.pro
 from config.config import get_trade_config
 
@@ -68,6 +70,10 @@ class TradeManager:
         self.volatilityManager = VolatilityManager(
             symbolName, wsExchange, self)
         self.volatilityEnabled = True  # 是否启用波动率自动调节
+        
+        # 初始化性能监控器
+        self.performance_monitor = get_performance_monitor()
+        logger.info(f"{self.symbolName}性能监控器已启动")
 
     # 创建完对象后必须调用这个函数
     async def initSymbolInfo(self):
@@ -157,28 +163,66 @@ class TradeManager:
 
     async def onOrderFilled(self, filled_orders=None):
         """
-        处理订单成交后的逻辑
+        处理订单成交后的逻辑 - 优化版本，减少延迟
         """
         if filled_orders is None:
             filled_orders = []
 
         logger.info(f"{self.symbolName}处理订单成交事件，成交订单数量: {len(filled_orders)}")
 
-        # 更新最后交易时间
-        import time
-        self.lastTradeTime = time.time()
+        # 使用性能监控器测量整个订单处理延迟
+        monitor = get_performance_monitor()
+        
+        with LatencyTracker(monitor, "order"):
+            # 更新最后交易时间
+            import time
+            self.lastTradeTime = time.time()
 
-        # 记录成交订单数据
+            # 异步记录成交订单数据（不阻塞主流程）
+            asyncio.create_task(self._record_filled_orders_async(filled_orders))
+
+            # 更新订单状态和持仓信息
+            try:
+                # 优化1：移除fetchOpenOrders调用，因为WebSocket已提供实时订单更新
+                # 订单状态已通过WebSocket实时更新，无需重复获取
+                logger.debug(f"{self.symbolName}跳过fetchOpenOrders调用，使用WebSocket实时数据")
+                
+                # 优化2：异步获取持仓信息，不阻塞主流程
+                position_task = asyncio.create_task(self._update_position_async())
+
+                logger.info(f"{self.symbolName}订单成交后状态更新完成")
+
+                # 优化3：减少冷却时间，提高响应速度
+                optimized_cooldown = max(0.05, self.orderCoolDown * 0.5)  # 减少50%冷却时间，最少50ms
+                await asyncio.sleep(optimized_cooldown)
+
+                # 重新执行交易逻辑
+                await self.runTrade()
+
+                # 等待持仓更新完成（如果还没完成的话）
+                try:
+                    await asyncio.wait_for(position_task, timeout=1.0)  # 最多等待1秒
+                except asyncio.TimeoutError:
+                    logger.warning(f"{self.symbolName}持仓更新超时，继续执行")
+
+            except Exception as e:
+                logger.error(f"{self.symbolName}处理订单成交事件时发生错误: {e}")
+                # 如果出错，尝试网络重连
+                await self.networkHelper()
+                raise  # 重新抛出异常，让LatencyTracker记录为失败
+
+    async def _record_filled_orders_async(self, filled_orders):
+        """
+        异步记录成交订单数据，不阻塞主流程
+        """
         try:
             for order in filled_orders:
                 if order and 'filled' in order and order['filled'] > 0:
                     # 更新最近成交订单价格
                     transaction_price = order['average'] or order['price']
                     if transaction_price:
-                        self.lastTransactionOrderPrice = float(
-                            transaction_price)
-                        logger.info(
-                            f"{self.symbolName}更新最近成交价格: {self.lastTransactionOrderPrice}")
+                        self.lastTransactionOrderPrice = float(transaction_price)
+                        logger.info(f"{self.symbolName}更新最近成交价格: {self.lastTransactionOrderPrice}")
 
                     # 计算手续费（如果订单中没有手续费信息，使用估算值）
                     fee = order.get('fee', {}).get('cost', 0)
@@ -195,33 +239,26 @@ class TradeManager:
                         order_id=order['id']
                     )
         except Exception as e:
-            logger.error(f"{self.symbolName}记录交易数据时发生错误: {e}")
+            logger.error(f"{self.symbolName}异步记录交易数据时发生错误: {e}")
 
-        # 更新订单状态和持仓信息
+    async def _update_position_async(self):
+        """
+        异步更新持仓信息，避免阻塞主流程
+        """
         try:
-            # 重新获取最新的订单信息
-            allOrder = await self.wsExchange.fetchOpenOrders(self.symbolName)
-            targetOrder = await tradeUtil.openOrderFilter(allOrder, self.symbolName)
-            await self.updateOrders(targetOrder)
+            # 检查持仓缓存是否需要更新（避免频繁调用）
+            current_time = time.time()
+            if hasattr(self, '_last_position_update') and \
+               current_time - self._last_position_update < 2.0:  # 2秒内不重复更新
+                logger.debug(f"{self.symbolName}持仓缓存仍然有效，跳过更新")
+                return
 
-            # 重新获取持仓信息
             allPosition = await self.wsExchange.fetchPositions()
             await self.updatePosition(allPosition)
-
-            # 注意：余额信息通过WebSocket实时更新，无需重复获取
-
-            logger.info(f"{self.symbolName}订单成交后状态更新完成")
-
-            # 延迟一段时间后重新挂单，避免频繁操作
-            await asyncio.sleep(self.orderCoolDown)
-
-            # 重新执行交易逻辑
-            await self.runTrade()
-
+            self._last_position_update = current_time
+            logger.debug(f"{self.symbolName}持仓信息异步更新完成")
         except Exception as e:
-            logger.error(f"{self.symbolName}处理订单成交事件时发生错误: {e}")
-            # 如果出错，尝试网络重连
-            await self.networkHelper()
+            logger.error(f"{self.symbolName}异步更新持仓信息时发生错误: {e}")
 
     # 检查和恢复订单监听状态
     async def checkAndRecoverOrderWatch(self):
