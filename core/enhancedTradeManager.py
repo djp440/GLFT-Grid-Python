@@ -227,7 +227,7 @@ class EnhancedTradeManager(TradeManager):
             can_sell = abs(current_position) < max_position
             
             # 取消现有订单（增强版会更智能地管理订单）
-            await self.cancelAllOrders()
+            await self.cancelAllOrder()
             
             orders_placed = 0
             
