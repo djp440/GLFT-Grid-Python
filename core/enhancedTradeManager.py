@@ -227,14 +227,18 @@ class EnhancedTradeManager(TradeManager):
             can_sell = abs(current_position) < max_position
             
             # 取消现有订单（增强版会更智能地管理订单）
+            cancel_success = True
             try:
                 await self.cancelAllOrder()
+                logger.debug(f"{self.symbolName}成功取消现有订单")
             except Exception as e:
                 # 如果没有订单需要取消，这是正常情况
                 if "No order to cancel" in str(e) or "22001" in str(e):
                     logger.debug(f"{self.symbolName}没有现有订单需要取消")
+                    cancel_success = True  # 这是正常情况，不影响后续流程
                 else:
                     logger.warning(f"{self.symbolName}取消订单时发生异常: {e}")
+                    cancel_success = False  # 真正的异常情况
             
             orders_placed = 0
             
@@ -259,7 +263,19 @@ class EnhancedTradeManager(TradeManager):
                 except Exception as e:
                     logger.error(f"{self.symbolName}增强版卖单下达失败: {e}")
             
-            return orders_placed > 0
+            # 判断执行是否成功：
+            # 1. 如果取消订单失败（真正的异常），但有订单成功下达，仍视为成功
+            # 2. 如果取消订单成功或正常（没有订单可取消），且有订单下达，视为成功
+            # 3. 如果没有订单下达，但取消订单是正常情况，也视为成功（避免误报）
+            if orders_placed > 0:
+                return True
+            elif cancel_success:
+                # 没有下单但取消订单正常，这可能是由于持仓限制等正常原因
+                logger.debug(f"{self.symbolName}未下达新订单，但操作正常")
+                return True
+            else:
+                # 取消订单失败且没有下单，这是真正的失败
+                return False
             
         except Exception as e:
             logger.error(f"{self.symbolName}增强版订单执行异常: {e}")

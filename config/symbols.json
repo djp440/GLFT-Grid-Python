@@ -1,29 +1,5 @@
 {
-  "ETH/USDT:USDT": {
-    "enabled": true,
-    "baseSpread": 0.0015,
-    "minSpread": 0.0001,
-    "maxSpread": 0.004,
-    "orderCoolDown": 0.1,
-    "maxStockRadio": 0.5,
-    "orderAmountRatio": 0.05,
-    "level": 5,
-    "direction": "long",
-    "coin": "USDT"
-  },
   "SOL/USDT:USDT": {
-    "enabled": true,
-    "baseSpread": 0.0015,
-    "minSpread": 0.0001,
-    "maxSpread": 0.004,
-    "orderCoolDown": 0.1,
-    "maxStockRadio": 0.5,
-    "orderAmountRatio": 0.05,
-    "level": 5,
-    "direction": "long",
-    "coin": "USDT"
-  },
-  "XRP/USDT:USDT": {
     "enabled": true,
     "baseSpread": 0.0015,
     "minSpread": 0.0001,
