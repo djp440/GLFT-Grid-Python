@@ -46,6 +46,9 @@ class GlobalConfig:
         # 交易风控参数
         MIN_ORDER_VALUE = 5.5               # 最小订单价值（USDT）
         PRICE_DEVIATION_FACTOR = 0.5        # 价格偏差阈值系数（相对于基础价差）
+        
+        # 订单数量动态调整开关
+        DYNAMIC_ORDER_AMOUNT = True          # 是否启用动态订单数量调整
 
     # ========== 波动率管理器配置 ==========
     class VolatilityConfig:

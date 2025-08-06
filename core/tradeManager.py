@@ -60,6 +60,10 @@ class TradeManager:
         self.noOrderTimeout = trade_config.NO_ORDER_TIMEOUT  # 无订单超时时间（秒）
         self.orderCheckInterval = trade_config.ORDER_CHECK_INTERVAL  # 订单检查间隔（秒）
         
+        # 动态订单数量调整开关
+        self.dynamicOrderAmount = trade_config.DYNAMIC_ORDER_AMOUNT  # 是否启用动态订单数量调整
+        self.initialOrderAmount = None  # 存储程序第一次运行时计算出的订单数量
+        
         # 波动率管理器
         self.volatilityManager = VolatilityManager(symbolName, wsExchange, self)
         self.volatilityEnabled = True  # 是否启用波动率自动调节
@@ -203,9 +207,7 @@ class TradeManager:
             allPosition = await self.wsExchange.fetchPositions()
             await self.updatePosition(allPosition)
 
-            # 重新获取余额信息
-            balance = await self.wsExchange.fetchBalance()
-            await self.updateBalance(balance[self.coin]['free'], balance[self.coin]['total'])
+            # 注意：余额信息通过WebSocket实时更新，无需重复获取
 
             logger.info(f"{self.symbolName}订单成交后状态更新完成")
 
@@ -540,6 +542,12 @@ class TradeManager:
     async def calculateOrderAmount(self):
         """动态计算订单数量，根据持仓比例调整"""
         try:
+            # 如果未启用动态订单数量调整，且已有初始订单数量，则直接使用
+            if not self.dynamicOrderAmount and self.initialOrderAmount is not None:
+                await self.updateOrderAmount(self.initialOrderAmount)
+                logger.info(f"{self.symbolName}使用固定订单数量: {self.initialOrderAmount:.6f}")
+                return
+
             # 计算当前持仓占比占最大持仓占比的比例
             ratio = self.nowStockRadio / self.maxStockRadio if self.maxStockRadio > 0 else 0
 
@@ -562,11 +570,19 @@ class TradeManager:
             # 确保不小于最小订单数量
             final_amount = max(adjusted_amount, self.minOrderAmount)
 
+            # 如果是第一次计算且未启用动态调整，保存为初始订单数量
+            if self.initialOrderAmount is None:
+                self.initialOrderAmount = final_amount
+                logger.info(f"{self.symbolName}保存初始订单数量: {self.initialOrderAmount:.6f}")
+
             # 更新订单数量
             await self.updateOrderAmount(final_amount)
 
-            logger.info(
-                f"{self.symbolName}动态计算订单数量: 基础={base_amount:.6f}, 持仓比例={ratio:.3f}, 最终={final_amount:.6f}")
+            if self.dynamicOrderAmount:
+                logger.info(
+                    f"{self.symbolName}动态计算订单数量: 基础={base_amount:.6f}, 持仓比例={ratio:.3f}, 最终={final_amount:.6f}")
+            else:
+                logger.info(f"{self.symbolName}计算订单数量: {final_amount:.6f}")
 
         except Exception as e:
             logger.error(f"{self.symbolName}计算订单数量时发生错误: {e}，使用最小订单数量")
