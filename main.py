@@ -2,6 +2,7 @@ import ccxt
 import ccxt.pro
 import asyncio
 import core.tradeManager
+from core.enhancedTradeManager import EnhancedTradeManager
 import core.websocketManager
 from util.sLogger import logger
 import os
@@ -11,6 +12,7 @@ import sys
 import json
 from core.chartManager import chart_manager
 from core.dataRecorder import data_recorder
+from config.config import GlobalConfig
 
 load_dotenv()
 # 读取沙盒环境配置
@@ -102,19 +104,38 @@ async def runWebsocketTask(symbol_config: dict):
         await exchangeBitget.set_leverage(level, symbolName, {'productType': 'USDT-FUTURES'})
         logger.info(f"交易对 {symbolName} 杠杆设置为 {level}")
 
-        # 使用配置参数创建交易管理器
-        tm = core.tradeManager.TradeManager(
-            symbolName,
-            exchangeBitget,
-            baseSpread=symbol_config.get('baseSpread', 0.001),
-            minSpread=symbol_config.get('minSpread', 0.0008),
-            maxSpread=symbol_config.get('maxSpread', 0.003),
-            orderCoolDown=symbol_config.get('orderCoolDown', 0.1),
-            maxStockRadio=symbol_config.get('maxStockRadio', 0.25),
-            orderAmountRatio=symbol_config.get('orderAmountRatio', 0.05),
-            coin=symbol_config.get('coin', 'USDT'),
-            direction=symbol_config.get('direction', 'both')
-        )
+        # 检查是否使用增强版交易管理器
+        config = GlobalConfig()
+        use_enhanced = config.trade_config.USE_ENHANCED_MANAGER
+        
+        if use_enhanced:
+            logger.info(f"为 {symbolName} 使用增强版交易管理器")
+            tm = EnhancedTradeManager(
+                symbolName,
+                exchangeBitget,
+                baseSpread=symbol_config.get('baseSpread', 0.001),
+                minSpread=symbol_config.get('minSpread', 0.0008),
+                maxSpread=symbol_config.get('maxSpread', 0.003),
+                orderCoolDown=symbol_config.get('orderCoolDown', 0.1),
+                maxStockRadio=symbol_config.get('maxStockRadio', 0.25),
+                orderAmountRatio=symbol_config.get('orderAmountRatio', 0.05),
+                coin=symbol_config.get('coin', 'USDT'),
+                direction=symbol_config.get('direction', 'both')
+            )
+        else:
+            logger.info(f"为 {symbolName} 使用标准交易管理器")
+            tm = core.tradeManager.TradeManager(
+                symbolName,
+                exchangeBitget,
+                baseSpread=symbol_config.get('baseSpread', 0.001),
+                minSpread=symbol_config.get('minSpread', 0.0008),
+                maxSpread=symbol_config.get('maxSpread', 0.003),
+                orderCoolDown=symbol_config.get('orderCoolDown', 0.1),
+                maxStockRadio=symbol_config.get('maxStockRadio', 0.25),
+                orderAmountRatio=symbol_config.get('orderAmountRatio', 0.05),
+                coin=symbol_config.get('coin', 'USDT'),
+                direction=symbol_config.get('direction', 'both')
+            )
         await tm.initSymbolInfo()
         wm = core.websocketManager.WebSocketManager(
             symbolName, exchangeBitget, tm)

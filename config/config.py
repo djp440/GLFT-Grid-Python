@@ -54,6 +54,10 @@ class GlobalConfig:
         # 价差模式：'fixed'(固定价差), 'dynamic'(AS模型动态价差), 'hybrid'(混合模式)
         SPREAD_MODE = 'fixed'                # 默认使用固定价差模式
 
+        # 增强版交易管理器配置
+        USE_ENHANCED_MANAGER = True          # 是否使用增强版交易管理器
+        ENABLE_INCREMENTAL_UPDATE = True     # 是否启用增量订单更新
+
         # 混合模式阈值配置
         INVENTORY_SAFE_THRESHOLD = 0.4       # 安全库存阈值（低于此值使用固定价差）
         INVENTORY_RISK_THRESHOLD = 0.7       # 风险库存阈值（高于此值使用动态价差）
@@ -62,6 +66,27 @@ class GlobalConfig:
         ENABLE_COST_PROTECTION = True        # 是否启用成本价保护
         MAX_LOSS_RATIO = 0.001              # 最大允许亏损比例（0.1%）
         MIN_PROFIT_RATIO = 0.0005           # 最小利润比例（0.05%）
+
+    # ========== 网格订单管理器配置 ==========
+    class GridOrderConfig:
+        """
+        网格订单管理器相关配置
+        """
+        # 网格参数
+        DEFAULT_TICK_SIZE = 0.01            # 默认价格精度
+        DEFAULT_GRID_INTERVAL = 10.0        # 默认网格间隔（价格单位）
+        
+        # 增量更新配置
+        INCREMENTAL_UPDATE_ENABLED = True   # 是否启用增量更新
+        SUCCESS_RATE_THRESHOLD = 0.8        # 批量操作成功率阈值
+        
+        # 性能优化配置
+        BATCH_OPERATION_TIMEOUT = 10.0      # 批量操作超时时间（秒）
+        MAX_CONCURRENT_OPERATIONS = 10      # 最大并发操作数
+        
+        # 统计和监控配置
+        ENABLE_PERFORMANCE_STATS = True     # 是否启用性能统计
+        STATS_RESET_INTERVAL = 3600        # 统计重置间隔（秒）
 
     # ========== 波动率管理器配置 ==========
     class VolatilityConfig:
@@ -214,6 +239,11 @@ def get_system_config():
 def get_security_config():
     """获取安全配置"""
     return config.SecurityConfig
+
+
+def get_grid_order_config():
+    """获取网格订单管理器配置"""
+    return config.GridOrderConfig
 
 
 def get_volatility_config():

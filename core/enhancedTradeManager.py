@@ -1,22 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-网格订单管理器集成示例
-展示如何在现有的TradeManager中集成GridOrderManager
+增强版交易管理器
+集成GridOrderManager的高性能交易管理器
 """
 
 import asyncio
-import sys
-import os
-
-# 添加项目根目录到路径
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from typing import Optional
 
 from core.gridOrderManager import GridOrderManager
 from core.tradeManager import TradeManager
 from util.sLogger import logger
-import ccxt.pro
-from config.config import get_exchange_config, get_trade_config
+from config.config import get_trade_config
 
 
 class EnhancedTradeManager(TradeManager):
@@ -25,12 +20,20 @@ class EnhancedTradeManager(TradeManager):
     集成了GridOrderManager的高效订单管理功能
     """
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, symbolName: str, wsExchange, baseSpread=0.001, minSpread=0.0008, 
+                 maxSpread=0.003, orderCoolDown=0.1, maxStockRadio=0.25, 
+                 orderAmountRatio=0.05, coin='USDT', direction='both'):
+        super().__init__(symbolName, wsExchange, baseSpread, minSpread, maxSpread, 
+                        orderCoolDown, maxStockRadio, orderAmountRatio, coin, direction)
         
         # 初始化网格订单管理器
         self.grid_order_manager = None
-        self.use_incremental_updates = True  # 是否使用增量更新
+        
+        # 获取配置
+        trade_config = get_trade_config()
+        
+        # 设置增量更新模式
+        self.use_incremental_updates = getattr(trade_config, 'ENABLE_INCREMENTAL_UPDATE', True)
         
         logger.info(f"{self.symbolName}增强版交易管理器初始化完成")
 
@@ -234,85 +237,3 @@ class EnhancedTradeManager(TradeManager):
                 'mode': '传统',
                 'grid_manager_stats': None
             }
-
-
-async def demo_enhanced_trade_manager():
-    """
-    演示增强版交易管理器的使用
-    """
-    logger.info("=== 增强版交易管理器演示 ===")
-    
-    try:
-        # 获取配置
-        exchange_config = get_exchange_config()
-        trade_config = get_trade_config()
-        
-        # 创建交易所实例（模拟盘）
-        exchange = ccxt.pro.binance({
-            'apiKey': exchange_config.API_KEY,
-            'secret': exchange_config.SECRET_KEY,
-            'sandbox': True,  # 使用模拟盘
-            'enableRateLimit': True,
-        })
-        
-        # 创建增强版交易管理器
-        enhanced_tm = EnhancedTradeManager(
-            symbolName="BTC/USDT:USDT",
-            wsExchange=exchange,
-            baseSpread=0.001,
-            minSpread=0.0008,
-            maxSpread=0.003,
-            orderCoolDown=0.05,  # 减少冷却时间
-            maxStockRadio=0.25,
-            orderAmountRatio=0.05
-        )
-        
-        # 初始化
-        await enhanced_tm.initSymbolInfo()
-        await enhanced_tm.init_grid_order_manager()
-        
-        # 模拟一些基础数据
-        enhanced_tm.lastPrice = 50000.0
-        enhanced_tm.orderAmount = 0.001
-        enhanced_tm.equity = 10000.0
-        
-        # 演示增量更新模式
-        logger.info("\n--- 测试增量更新模式 ---")
-        await enhanced_tm.toggle_incremental_mode(True)
-        
-        # 模拟几次交易更新
-        for i in range(3):
-            logger.info(f"\n第{i+1}次交易更新:")
-            enhanced_tm.lastPrice += (-1) ** i * 100  # 价格小幅波动
-            await enhanced_tm.runTradeEnhanced()
-            
-            # 显示统计信息
-            stats = enhanced_tm.get_order_management_stats()
-            logger.info(f"订单管理统计: {stats}")
-            
-            await asyncio.sleep(1)
-        
-        # 演示传统模式对比
-        logger.info("\n--- 测试传统模式对比 ---")
-        await enhanced_tm.toggle_incremental_mode(False)
-        
-        for i in range(2):
-            logger.info(f"\n传统模式第{i+1}次交易更新:")
-            enhanced_tm.lastPrice += (-1) ** i * 50
-            await enhanced_tm.runTradeEnhanced()
-            await asyncio.sleep(1)
-        
-        # 最终统计
-        final_stats = enhanced_tm.get_order_management_stats()
-        logger.info(f"\n=== 最终统计 ===")
-        logger.info(f"订单管理统计: {final_stats}")
-        
-    except Exception as e:
-        logger.error(f"演示过程中发生错误: {e}")
-    
-    logger.info("=== 演示结束 ===")
-
-
-if __name__ == "__main__":
-    # 运行演示
-    asyncio.run(demo_enhanced_trade_manager())
