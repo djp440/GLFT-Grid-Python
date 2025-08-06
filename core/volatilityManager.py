@@ -3,7 +3,7 @@ import time
 from typing import List, Optional
 from util.sLogger import logger
 import ccxt.pro
-from config.config import get_volatility_config
+from config.config import get_volatility_config, get_trade_config
 
 
 class VolatilityManager:
@@ -156,8 +156,18 @@ class VolatilityManager:
         """
         根据波动率更新TradeManager的价差参数
         使用配置中的倍数参数
+        注意：只在dynamic或hybrid模式下更新价差参数
         """
         try:
+            # 获取交易配置，检查价差模式
+            trade_config = get_trade_config()
+            spread_mode = getattr(trade_config, 'SPREAD_MODE', 'fixed')
+            
+            # 只在dynamic或hybrid模式下更新价差参数
+            if spread_mode == 'fixed':
+                logger.debug(f"{self.symbolName}当前为固定价差模式，跳过波动率价差更新")
+                return
+            
             # 计算新的价差参数（需要除以2，因为TradeManager内部会除以2）
             new_min_spread = volatility * self.config.MIN_SPREAD_MULTIPLIER * 2
             new_base_spread = volatility * self.config.BASE_SPREAD_MULTIPLIER * 2
