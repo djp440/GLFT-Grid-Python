@@ -15,14 +15,29 @@ def fetch_all_trades(exchange, symbol, since_timestamp):
     all_trades = []
     limit = 100  # 每页获取的记录数
     now = exchange.milliseconds()
+    empty_count = 0  # 连续空结果的计数器
+    max_empty_attempts = 3  # 最大连续空结果尝试次数
     
-    while since_timestamp < now:
+    while since_timestamp < now and empty_count < max_empty_attempts:
         try:
             # 获取一页交易记录
             trades = exchange.fetch_my_trades(symbol=symbol, since=since_timestamp, limit=limit)
             
-            if not trades:  # 如果没有更多交易记录，则退出循环
-                break
+            if not trades:  # 如果没有更多交易记录
+                empty_count += 1
+                print(f"  -> 获取到空结果，尝试次数: {empty_count}/{max_empty_attempts}")
+                
+                # 如果已经达到最大尝试次数，并且时间戳很近当前时间，说明真的没有更多数据了
+                if empty_count >= max_empty_attempts:
+                    print(f"  -> 达到最大空结果尝试次数，停止查询")
+                    break
+                
+                # 稍微增加时间戳，继续请求下一页
+                since_timestamp += 60000 * limit  # 向前推limit分钟
+                time.sleep(exchange.rateLimit / 1000)
+                continue
+            else:
+                empty_count = 0  # 重置空结果计数器
                 
             # 添加到总记录中
             all_trades.extend(trades)
