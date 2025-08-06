@@ -998,16 +998,16 @@ class TradeManager:
             1 for o in expected_orders if o['side'] == 'sell' and o['reduce_only'])
 
         # 统计当前订单的类型
-        current_buy_orders = [
-            o for o in self.openOrders if o.get('side') == 'buy']
-        current_sell_orders = [
-            o for o in self.openOrders if o.get('side') == 'sell']
+        current_buy_open = sum(1 for o in self.openOrders if o.get('side') == 'buy' and not o.get('reduceOnly', False))
+        current_buy_close = sum(1 for o in self.openOrders if o.get('side') == 'buy' and o.get('reduceOnly', False))
+        current_sell_open = sum(1 for o in self.openOrders if o.get('side') == 'sell' and not o.get('reduceOnly', False))
+        current_sell_close = sum(1 for o in self.openOrders if o.get('side') == 'sell' and o.get('reduceOnly', False))
 
-        # 检查买卖单数量是否匹配
-        expected_buy_total = expected_buy_open + expected_buy_close
-        expected_sell_total = expected_sell_open + expected_sell_close
-
-        if len(current_buy_orders) != expected_buy_total or len(current_sell_orders) != expected_sell_total:
+        # 检查各类订单数量是否完全匹配
+        if (expected_buy_open != current_buy_open or
+            expected_buy_close != current_buy_close or
+            expected_sell_open != current_sell_open or
+            expected_sell_close != current_sell_close):
             return False
 
         # 增加价格偏差检查：如果当前价格与订单价格偏差过大，需要重新下单
@@ -1018,28 +1018,14 @@ class TradeManager:
                 trade_config, 'PRICE_DEVIATION_FACTOR', 0.5)  # 默认0.5
             price_deviation_threshold = self.baseSpread * deviation_factor  # 价格偏差阈值
 
-            # 检查买单价格偏差
-            for buy_order in current_buy_orders:
-                order_price = float(buy_order.get('price', 0))
+            # 检查所有订单的价格偏差
+            for order in self.openOrders:
+                order_price = float(order.get('price', 0))
                 if order_price > 0:
-                    # 买单应该低于当前价格，检查偏差是否过大
-                    price_diff = abs(self.lastPrice -
-                                     order_price) / self.lastPrice
+                    price_diff = abs(self.lastPrice - order_price) / self.lastPrice
                     if price_diff > price_deviation_threshold:
                         logger.info(
-                            f"{self.symbolName}买单价格偏差过大: 当前价格{self.lastPrice}, 订单价格{order_price}, 偏差{price_diff:.4f}")
-                        return False
-
-            # 检查卖单价格偏差
-            for sell_order in current_sell_orders:
-                order_price = float(sell_order.get('price', 0))
-                if order_price > 0:
-                    # 卖单应该高于当前价格，检查偏差是否过大
-                    price_diff = abs(
-                        order_price - self.lastPrice) / self.lastPrice
-                    if price_diff > price_deviation_threshold:
-                        logger.info(
-                            f"{self.symbolName}卖单价格偏差过大: 当前价格{self.lastPrice}, 订单价格{order_price}, 偏差{price_diff:.4f}")
+                            f"{self.symbolName}订单价格偏差过大: 当前价格{self.lastPrice}, 订单价格{order_price}, 偏差{price_diff:.4f}")
                         return False
 
         return True
