@@ -59,13 +59,14 @@ class TradeManager:
         self.lastOrderCheckTime = None  # 最后一次订单检查时间
         self.noOrderTimeout = trade_config.NO_ORDER_TIMEOUT  # 无订单超时时间（秒）
         self.orderCheckInterval = trade_config.ORDER_CHECK_INTERVAL  # 订单检查间隔（秒）
-        
+
         # 动态订单数量调整开关
         self.dynamicOrderAmount = trade_config.DYNAMIC_ORDER_AMOUNT  # 是否启用动态订单数量调整
         self.initialOrderAmount = None  # 存储程序第一次运行时计算出的订单数量
-        
+
         # 波动率管理器
-        self.volatilityManager = VolatilityManager(symbolName, wsExchange, self)
+        self.volatilityManager = VolatilityManager(
+            symbolName, wsExchange, self)
         self.volatilityEnabled = True  # 是否启用波动率自动调节
 
     # 创建完对象后必须调用这个函数
@@ -339,7 +340,7 @@ class TradeManager:
     async def updateLastPrice(self, lastPrice: float):
         if self.lastPrice != lastPrice:
             self.lastPrice = lastPrice
-            
+
             # 记录价格数据到数据记录器
             try:
                 await data_recorder.record_price(self.symbolName, lastPrice)
@@ -453,7 +454,7 @@ class TradeManager:
             ratio = 0.0
             self.nowStockRadio = ratio
             return
-        
+
         total_value = self.balance + marginSize
         if total_value <= 0:
             logger.warning(
@@ -535,7 +536,8 @@ class TradeManager:
             self.openOrders = orders
             # 使用新的订单检查逻辑，支持动态订单数量
             expected_orders = self._calculate_expected_orders()
-            self.checkOrder = self._check_orders_match_expected(expected_orders)
+            self.checkOrder = self._check_orders_match_expected(
+                expected_orders)
 
     # 计算下单数量
 
@@ -545,7 +547,8 @@ class TradeManager:
             # 如果未启用动态订单数量调整，且已有初始订单数量，则直接使用
             if not self.dynamicOrderAmount and self.initialOrderAmount is not None:
                 await self.updateOrderAmount(self.initialOrderAmount)
-                logger.info(f"{self.symbolName}使用固定订单数量: {self.initialOrderAmount:.6f}")
+                logger.info(
+                    f"{self.symbolName}使用固定订单数量: {self.initialOrderAmount:.6f}")
                 return
 
             # 计算当前持仓占比占最大持仓占比的比例
@@ -573,7 +576,8 @@ class TradeManager:
             # 如果是第一次计算且未启用动态调整，保存为初始订单数量
             if self.initialOrderAmount is None:
                 self.initialOrderAmount = final_amount
-                logger.info(f"{self.symbolName}保存初始订单数量: {self.initialOrderAmount:.6f}")
+                logger.info(
+                    f"{self.symbolName}保存初始订单数量: {self.initialOrderAmount:.6f}")
 
             # 更新订单数量
             await self.updateOrderAmount(final_amount)
@@ -590,7 +594,11 @@ class TradeManager:
 
     # 计算买卖单价格
     async def calculateOrderPrice(self):
-        # 根据交易方向和库存数量重构价差
+        # 获取交易配置
+        trade_config = get_trade_config()
+        spread_mode = getattr(trade_config, 'SPREAD_MODE', 'fixed')
+        
+        # 根据交易方向和库存数量计算持仓比例
         if self.direction == 'both':
             # 双向持仓：使用总持仓比例
             ratio = self.nowStockRadio/self.maxStockRadio
@@ -611,11 +619,83 @@ class TradeManager:
         else:
             ratio = 0
 
-        buySpread, sellSpread = self.baseSpread, self.baseSpread
-        balanceRatio = 0.5
+        # 根据价差模式计算买卖价差
+        if spread_mode == 'fixed':
+            # 固定价差模式：始终使用基础价差
+            buySpread = sellSpread = self.baseSpread
+            logger.debug(f"{self.symbolName}使用固定价差模式: {self.baseSpread:.6f}")
+            
+        elif spread_mode == 'dynamic':
+            # 动态价差模式：使用AS模型逻辑
+            buySpread, sellSpread = self._calculateDynamicSpread(ratio)
+            logger.debug(f"{self.symbolName}使用动态价差模式: 买单{buySpread:.6f}, 卖单{sellSpread:.6f}")
+            
+        elif spread_mode == 'hybrid':
+            # 混合模式：根据库存水平选择价差策略
+            safe_threshold = getattr(trade_config, 'INVENTORY_SAFE_THRESHOLD', 0.4)
+            risk_threshold = getattr(trade_config, 'INVENTORY_RISK_THRESHOLD', 0.7)
+            
+            if ratio < safe_threshold:
+                # 低库存：使用固定价差
+                buySpread = sellSpread = self.baseSpread
+                logger.debug(f"{self.symbolName}混合模式-低库存({ratio:.3f}<{safe_threshold}): 使用固定价差")
+                
+            elif ratio >= risk_threshold:
+                # 高库存：使用动态价差
+                buySpread, sellSpread = self._calculateDynamicSpread(ratio)
+                logger.debug(f"{self.symbolName}混合模式-高库存({ratio:.3f}>={risk_threshold}): 使用动态价差")
+                
+            else:
+                # 过渡区间：线性插值
+                fixed_spread = self.baseSpread
+                dynamic_buy_spread, dynamic_sell_spread = self._calculateDynamicSpread(ratio)
+                
+                # 计算过渡因子
+                transition_factor = (ratio - safe_threshold) / (risk_threshold - safe_threshold)
+                
+                # 线性插值
+                buySpread = fixed_spread * (1 - transition_factor) + dynamic_buy_spread * transition_factor
+                sellSpread = fixed_spread * (1 - transition_factor) + dynamic_sell_spread * transition_factor
+                
+                logger.debug(f"{self.symbolName}混合模式-过渡区间({ratio:.3f}): 插值因子{transition_factor:.3f}")
+        else:
+            # 未知模式，默认使用固定价差
+            buySpread = sellSpread = self.baseSpread
+            logger.warning(f"{self.symbolName}未知价差模式'{spread_mode}'，使用固定价差")
 
+        # 确保价差在合理范围内
+        buySpread = max(self.minSpread, min(self.maxSpread, buySpread))
+        sellSpread = max(self.minSpread, min(self.maxSpread, sellSpread))
+
+        logger.info(
+            f"{self.symbolName} 模式:{spread_mode}, 持仓比例:{ratio:.4f}, 买单价差:{buySpread:.6f}, 卖单价差:{sellSpread:.6f}")
+
+        # 确定用于计算价格的基准价
+        if self.useTransactionPrice and self.lastTransactionOrderPrice is not None:
+            # 使用最近成交订单价格作为基准价
+            basePrice = self.lastTransactionOrderPrice
+            logger.info(f"{self.symbolName}使用成交价作为基准价: {basePrice}")
+        else:
+            # 使用实时价格作为基准价
+            basePrice = self.lastPrice
+            if self.useTransactionPrice and self.lastTransactionOrderPrice is None:
+                logger.warning(
+                    f"{self.symbolName}启用了成交价基准但无成交记录，使用实时价格: {basePrice}")
+
+        # 计算买卖价格
+        buyPrice = basePrice * (1 - buySpread)
+        sellPrice = basePrice * (1 + sellSpread)
+        return buyPrice, sellPrice
+    
+    def _calculateDynamicSpread(self, ratio):
+        """
+        计算AS模型的动态价差
+        """
+        balanceRatio = 0.5
+        buySpread, sellSpread = self.baseSpread, self.baseSpread
+        
         '''
-        价差计算逻辑：
+        AS模型价差计算逻辑：
         - 当 ratio = 0 时, spread = minSpread
         - 当 0 < ratio <= 0.5 时, spread 从 minSpread 线性增长到 baseSpread
         - 当 0.5 < ratio <= 1 时, spread 从 baseSpread 线性增长到 maxSpread
@@ -661,30 +741,8 @@ class TradeManager:
                     (ratio - balanceRatio) + self.baseSpread
                 sellSpread = 2 * (self.minSpread-self.baseSpread) * \
                     (ratio - balanceRatio) + self.baseSpread
-
-        # 确保价差在合理范围内
-        buySpread = max(self.minSpread, min(self.maxSpread, buySpread))
-        sellSpread = max(self.minSpread, min(self.maxSpread, sellSpread))
-
-        print(
-            f"交易方向:{self.direction}, 默认价差:{self.baseSpread}, 当前持仓比例:{ratio:.4f}, 买单价差:{buySpread:.6f}, 卖单价差:{sellSpread:.6f}")
-
-        # 确定用于计算价格的基准价
-        if self.useTransactionPrice and self.lastTransactionOrderPrice is not None:
-            # 使用最近成交订单价格作为基准价
-            basePrice = self.lastTransactionOrderPrice
-            logger.info(f"{self.symbolName}使用成交价作为基准价: {basePrice}")
-        else:
-            # 使用实时价格作为基准价
-            basePrice = self.lastPrice
-            if self.useTransactionPrice and self.lastTransactionOrderPrice is None:
-                logger.warning(
-                    f"{self.symbolName}启用了成交价基准但无成交记录，使用实时价格: {basePrice}")
-
-        # 计算买卖价格
-        buyPrice = basePrice * (1 - buySpread)
-        sellPrice = basePrice * (1 + sellSpread)
-        return buyPrice, sellPrice
+        
+        return buySpread, sellSpread
 
     # 下单
     async def placeOrder(self, amount, price, side, reduceOnly):
@@ -1047,7 +1105,7 @@ class TradeManager:
         except Exception as e:
             logger.error(f"{self.symbolName}刷新状态信息失败: {e}")
             raise e
-    
+
     # 波动率管理相关方法
     async def startVolatilityMonitoring(self):
         """
@@ -1056,7 +1114,8 @@ class TradeManager:
         if self.volatilityEnabled and self.volatilityManager:
             try:
                 # 创建波动率监控任务
-                volatility_task = asyncio.create_task(self.volatilityManager.watch_kline())
+                volatility_task = asyncio.create_task(
+                    self.volatilityManager.watch_kline())
                 logger.info(f"{self.symbolName}波动率监控已启动")
                 return volatility_task
             except Exception as e:
@@ -1065,7 +1124,7 @@ class TradeManager:
         else:
             logger.info(f"{self.symbolName}波动率监控已禁用")
             return None
-    
+
     def stopVolatilityMonitoring(self):
         """
         停止波动率监控
@@ -1073,14 +1132,14 @@ class TradeManager:
         if self.volatilityManager:
             self.volatilityManager.stop()
             logger.info(f"{self.symbolName}波动率监控已停止")
-    
+
     def setVolatilityEnabled(self, enabled: bool):
         """
         设置是否启用波动率自动调节
         """
         self.volatilityEnabled = enabled
         logger.info(f"{self.symbolName}波动率自动调节已{'启用' if enabled else '禁用'}")
-    
+
     def getVolatilityInfo(self) -> dict:
         """
         获取波动率信息

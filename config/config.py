@@ -46,9 +46,22 @@ class GlobalConfig:
         # 交易风控参数
         MIN_ORDER_VALUE = 5.5               # 最小订单价值（USDT）
         PRICE_DEVIATION_FACTOR = 0.5        # 价格偏差阈值系数（相对于基础价差）
-        
+
         # 订单数量动态调整开关
-        DYNAMIC_ORDER_AMOUNT = True          # 是否启用动态订单数量调整
+        DYNAMIC_ORDER_AMOUNT = False          # 是否启用动态订单数量调整
+
+        # ========== 价差模式配置 ==========
+        # 价差模式：'fixed'(固定价差), 'dynamic'(AS模型动态价差), 'hybrid'(混合模式)
+        SPREAD_MODE = 'fixed'                # 默认使用固定价差模式
+
+        # 混合模式阈值配置
+        INVENTORY_SAFE_THRESHOLD = 0.4       # 安全库存阈值（低于此值使用固定价差）
+        INVENTORY_RISK_THRESHOLD = 0.7       # 风险库存阈值（高于此值使用动态价差）
+
+        # 成本价保护配置
+        ENABLE_COST_PROTECTION = True        # 是否启用成本价保护
+        MAX_LOSS_RATIO = 0.001              # 最大允许亏损比例（0.1%）
+        MIN_PROFIT_RATIO = 0.0005           # 最小利润比例（0.05%）
 
     # ========== 波动率管理器配置 ==========
     class VolatilityConfig:
