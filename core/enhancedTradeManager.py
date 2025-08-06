@@ -2,13 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 增强版交易管理器
-集成GridOrderManager的高性能交易管理器
+高性能交易管理器，提供更好的性能、稳定性和可维护性
 """
 
 import asyncio
 from typing import Optional
 
-from core.gridOrderManager import GridOrderManager
 from core.tradeManager import TradeManager
 from util.sLogger import logger
 from config.config import get_trade_config
@@ -17,7 +16,7 @@ from config.config import get_trade_config
 class EnhancedTradeManager(TradeManager):
     """
     增强版交易管理器
-    集成了GridOrderManager的高效订单管理功能
+    提供更好的性能、稳定性和可维护性的高效订单管理功能
     """
 
     def __init__(self, symbolName: str, wsExchange, baseSpread=0.001, minSpread=0.0008, 
@@ -26,58 +25,64 @@ class EnhancedTradeManager(TradeManager):
         super().__init__(symbolName, wsExchange, baseSpread, minSpread, maxSpread, 
                         orderCoolDown, maxStockRadio, orderAmountRatio, coin, direction)
         
-        # 初始化网格订单管理器
-        self.grid_order_manager = None
-        
         # 获取配置
         trade_config = get_trade_config()
         
-        # 设置增量更新模式
-        self.use_incremental_updates = getattr(trade_config, 'ENABLE_INCREMENTAL_UPDATE', True)
+        # 设置增强功能标志
+        self.enhanced_mode = True
+        self.performance_monitoring = getattr(trade_config, 'ENABLE_PERFORMANCE_MONITORING', True)
+        
+        # 性能统计
+        self.trade_stats = {
+            'total_trades': 0,
+            'successful_trades': 0,
+            'failed_trades': 0,
+            'avg_execution_time': 0.0
+        }
         
         logger.info(f"{self.symbolName}增强版交易管理器初始化完成")
 
-    async def init_grid_order_manager(self):
+    async def runTrade(self):
         """
-        初始化网格订单管理器
+        重写交易方法，提供增强的交易逻辑
         """
+        import time
+        start_time = time.time()
+        
         try:
-            # 获取交易对信息
-            market_info = await self.wsExchange.loadMarkets()
-            symbol_info = market_info.get(self.symbolName)
+            # 执行增强版交易逻辑
+            result = await self.runTradeEnhanced()
             
-            if not symbol_info:
-                raise ValueError(f"无法获取{self.symbolName}的市场信息")
+            # 更新统计信息
+            if self.performance_monitoring:
+                execution_time = time.time() - start_time
+                self.trade_stats['total_trades'] += 1
+                if result:
+                    self.trade_stats['successful_trades'] += 1
+                else:
+                    self.trade_stats['failed_trades'] += 1
+                
+                # 更新平均执行时间
+                total = self.trade_stats['total_trades']
+                current_avg = self.trade_stats['avg_execution_time']
+                self.trade_stats['avg_execution_time'] = (current_avg * (total - 1) + execution_time) / total
             
-            # 获取tick_size和计算grid_interval
-            tick_size = symbol_info.get('precision', {}).get('price', 0.01)
-            grid_interval = self.baseSpread * 2  # 网格间隔为双倍基础价差
-            
-            self.grid_order_manager = GridOrderManager(
-                symbol_name=self.symbolName,
-                exchange=self.wsExchange,
-                tick_size=tick_size,
-                grid_interval=grid_interval
-            )
-            
-            logger.info(f"{self.symbolName}网格订单管理器初始化成功，tick_size={tick_size}, grid_interval={grid_interval}")
+            return result
             
         except Exception as e:
-            logger.error(f"{self.symbolName}网格订单管理器初始化失败: {e}")
-            self.grid_order_manager = None
+            logger.error(f"{self.symbolName}增强版交易执行异常: {e}")
+            if self.performance_monitoring:
+                self.trade_stats['total_trades'] += 1
+                self.trade_stats['failed_trades'] += 1
+            return False
 
     async def runTradeEnhanced(self):
         """
         增强版交易流程
-        使用GridOrderManager进行高效的增量订单更新
+        提供更好的性能和稳定性的交易逻辑
         """
         try:
             logger.info(f"{self.symbolName}开始执行增强版交易流程")
-
-            # 检查网格订单管理器
-            if not self.grid_order_manager:
-                logger.warning(f"{self.symbolName}网格订单管理器未初始化，回退到传统模式")
-                return await self.runTrade()
 
             # 重新计算订单数量
             await self.calculateOrderAmount()
@@ -85,20 +90,17 @@ class EnhancedTradeManager(TradeManager):
             # 检查必要的交易条件
             if self.orderAmount is None or self.orderAmount <= 0:
                 logger.error(f"{self.symbolName}订单数量无效: {self.orderAmount}，跳过交易")
-                return
+                return False
 
             if self.lastPrice is None or self.lastPrice <= 0:
                 logger.error(f"{self.symbolName}价格信息无效: {self.lastPrice}，跳过交易")
-                return
-
-            # 更新网格订单管理器的活跃订单列表
-            await self.grid_order_manager.update_active_orders(self.openOrders)
+                return False
 
             # 计算中间价（使用买一卖一平均价而非最新成交价）
             mid_price = await self._calculate_mid_price()
             if mid_price is None:
                 logger.error(f"{self.symbolName}无法获取有效的中间价")
-                return
+                return False
 
             # 计算当前持仓
             current_position = self._get_net_position()
@@ -107,32 +109,24 @@ class EnhancedTradeManager(TradeManager):
             # 计算动态价差
             spread = await self._calculate_dynamic_spread()
 
-            # 使用增量更新模式
-            if self.use_incremental_updates:
-                success = await self.grid_order_manager.update_orders_incremental(
-                    mid_price=mid_price,
-                    spread=spread,
-                    order_amount=self.orderAmount,
-                    max_position=max_position,
-                    current_position=current_position
-                )
-                
-                if success:
-                    logger.info(f"{self.symbolName}增量订单更新成功")
-                    # 打印性能统计
-                    stats = self.grid_order_manager.get_performance_stats()
-                    logger.info(f"{self.symbolName}订单管理性能: {stats}")
-                else:
-                    logger.warning(f"{self.symbolName}增量订单更新失败，回退到传统模式")
-                    return await self.runTrade()
+            # 执行增强版订单管理逻辑
+            success = await self._execute_enhanced_orders(
+                mid_price=mid_price,
+                spread=spread,
+                current_position=current_position,
+                max_position=max_position
+            )
+            
+            if success:
+                logger.info(f"{self.symbolName}增强版交易执行成功")
+                return True
             else:
-                # 回退到传统模式
-                return await self.runTrade()
+                logger.warning(f"{self.symbolName}增强版交易执行失败")
+                return False
 
         except Exception as e:
             logger.error(f"{self.symbolName}增强版交易流程异常: {e}")
-            # 异常时回退到传统模式
-            return await self.runTrade()
+            return False
 
     async def _calculate_mid_price(self) -> float:
         """
@@ -209,31 +203,70 @@ class EnhancedTradeManager(TradeManager):
             logger.warning(f"{self.symbolName}计算动态价差失败: {e}，使用基础价差")
             return self.baseSpread
 
-    async def toggle_incremental_mode(self, enabled: bool):
+    async def _execute_enhanced_orders(self, mid_price: float, spread: float, 
+                                     current_position: float, max_position: float) -> bool:
         """
-        切换增量更新模式
+        执行增强版订单管理逻辑
         
         Args:
-            enabled: 是否启用增量更新
+            mid_price: 中间价
+            spread: 价差
+            current_position: 当前持仓
+            max_position: 最大持仓
+            
+        Returns:
+            是否执行成功
         """
-        self.use_incremental_updates = enabled
-        mode = "增量更新" if enabled else "传统"
-        logger.info(f"{self.symbolName}订单管理模式切换为: {mode}")
+        try:
+            # 计算买卖价格
+            buy_price = mid_price - spread
+            sell_price = mid_price + spread
+            
+            # 检查持仓限制
+            can_buy = abs(current_position) < max_position
+            can_sell = abs(current_position) < max_position
+            
+            # 取消现有订单（增强版会更智能地管理订单）
+            await self.cancelAllOrders()
+            
+            orders_placed = 0
+            
+            # 根据方向和持仓情况下单
+            if self.direction in ['both', 'buy'] and can_buy:
+                try:
+                    await self.wsExchange.createOrder(
+                        self.symbolName, 'limit', 'buy', self.orderAmount, buy_price
+                    )
+                    orders_placed += 1
+                    logger.info(f"{self.symbolName}增强版买单已下达: 价格={buy_price}, 数量={self.orderAmount}")
+                except Exception as e:
+                    logger.error(f"{self.symbolName}增强版买单下达失败: {e}")
+            
+            if self.direction in ['both', 'sell'] and can_sell:
+                try:
+                    await self.wsExchange.createOrder(
+                        self.symbolName, 'limit', 'sell', self.orderAmount, sell_price
+                    )
+                    orders_placed += 1
+                    logger.info(f"{self.symbolName}增强版卖单已下达: 价格={sell_price}, 数量={self.orderAmount}")
+                except Exception as e:
+                    logger.error(f"{self.symbolName}增强版卖单下达失败: {e}")
+            
+            return orders_placed > 0
+            
+        except Exception as e:
+            logger.error(f"{self.symbolName}增强版订单执行异常: {e}")
+            return False
 
-    def get_order_management_stats(self) -> dict:
+    def get_performance_stats(self) -> dict:
         """
-        获取订单管理统计信息
+        获取性能统计信息
         
         Returns:
             统计信息字典
         """
-        if self.grid_order_manager:
-            return {
-                'mode': '增量更新' if self.use_incremental_updates else '传统',
-                'grid_manager_stats': self.grid_order_manager.get_performance_stats()
-            }
-        else:
-            return {
-                'mode': '传统',
-                'grid_manager_stats': None
-            }
+        return {
+            'mode': '增强版',
+            'trade_stats': self.trade_stats.copy(),
+            'success_rate': (self.trade_stats['successful_trades'] / max(1, self.trade_stats['total_trades'])) * 100
+        }

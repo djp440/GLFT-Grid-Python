@@ -107,7 +107,7 @@ async def updateOrdersIncremental(self, target_buy_price, target_sell_price):
 
 **改进方案**：
 ```python
-class GridOrderManager:
+class EnhancedOrderManager:
     def __init__(self, tick_size, grid_interval):
         self.tick_size = tick_size
         self.grid_interval = grid_interval
