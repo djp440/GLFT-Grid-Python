@@ -8,6 +8,46 @@ import sys
 import json
 from dotenv import load_dotenv
 
+def fetch_all_trades(exchange, symbol, since_timestamp):
+    """
+    分页获取指定交易对的所有交易记录
+    """
+    all_trades = []
+    limit = 100  # 每页获取的记录数
+    now = exchange.milliseconds()
+    
+    while since_timestamp < now:
+        try:
+            # 获取一页交易记录
+            trades = exchange.fetch_my_trades(symbol=symbol, since=since_timestamp, limit=limit)
+            
+            if not trades:  # 如果没有更多交易记录，则退出循环
+                break
+                
+            # 添加到总记录中
+            all_trades.extend(trades)
+            
+            # 更新since_timestamp为最后一条记录的时间，避免重复
+            since_timestamp = trades[-1]['timestamp'] + 1
+            
+            print(f"  -> 已获取 {len(trades)} 条记录，总计 {len(all_trades)} 条记录")
+            
+            # 防止API请求过于频繁
+            time.sleep(exchange.rateLimit / 1000)
+            
+        except ccxt.NetworkError as e:
+            print(f"获取 {symbol} 交易记录时发生网络错误: {e}")
+            time.sleep(exchange.rateLimit / 1000)
+            continue
+        except ccxt.ExchangeError as e:
+            print(f"获取 {symbol} 交易记录时交易所返回错误: {e}")
+            break
+        except Exception as e:
+            print(f"获取 {symbol} 交易记录时发生未知错误: {e}")
+            break
+    
+    return all_trades
+
 def calculate_total_fees(symbols: list):
     """
     连接交易所，获取指定交易对在指定时间后的所有成交记录，并统计手续费。
@@ -85,8 +125,8 @@ def calculate_total_fees(symbols: list):
         for i, symbol in enumerate(symbols):
             try:
                 print(f"[{i+1}/{len(symbols)}] 正在获取交易对 {symbol} 的成交记录...")
-                # 注意：如果记录数量超过交易所单次返回的上限 (e.g., 1000), 可能需要自行实现分页逻辑来获取完整历史。
-                trades = exchange.fetch_my_trades(symbol=symbol, since=since_timestamp, limit=1000)
+                # 使用分页获取所有交易记录
+                trades = fetch_all_trades(exchange, symbol, since_timestamp)
 
                 if trades:
                     print(f"  -> 在 {symbol} 发现 {len(trades)} 条成交记录，正在处理...")
@@ -95,9 +135,8 @@ def calculate_total_fees(symbols: list):
                             fee_cost = trade['fee']['cost']
                             fee_currency = trade['fee']['currency']
                             total_fees[fee_currency] = total_fees.get(fee_currency, 0) + fee_cost
-                
-                # 防止API请求过于频繁
-                time.sleep(exchange.rateLimit / 1000)
+                else:
+                    print(f"  -> 在 {symbol} 没有找到符合条件的成交记录")
 
             except ccxt.NetworkError as e:
                 print(f"查询 {symbol} 时发生网络错误: {e}，跳过此交易对。")
