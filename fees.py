@@ -67,53 +67,35 @@ def calculate_total_fees():
             print(f"错误：交易所 '{exchange_id}' 不支持 fetchMyTrades 方法，无法获取个人成交记录。")
             return
 
-        print("正在加载市场列表以获取所有合约交易对...")
-        markets = exchange.load_markets()
-        # 筛选出所有合约交易对 (swap)
-        symbols = [
-            market['symbol'] for market in markets.values() 
-            if market.get('swap') and market.get('active')
-        ]
-        
-        if not symbols:
-            print("错误：未能从交易所获取到任何活跃的合约交易对。")
-            return
-
-        print(f"成功获取到 {len(symbols)} 个合约交易对。开始逐个查询成交记录...")
-        
         total_fees = {}  # 使用字典来分别统计不同币种的手续费, e.g., {'USDT': 10.5}
 
-        # 遍历所有交易对
-        for i, symbol in enumerate(symbols):
-            try:
-                # 使用 fetch_my_trades 获取指定交易对和时间之后的所有成交记录
-                trades = exchange.fetch_my_trades(symbol=symbol, since=since_timestamp, limit=500)
-                
-                if trades:
-                    print(f"[{i+1}/{len(symbols)}] 在 {symbol} 发现 {len(trades)} 条成交记录...")
-                    for trade in trades:
-                        # 检查订单信息中是否包含手续费(fee)字段
-                        if 'fee' in trade and trade['fee'] is not None:
-                            fee_cost = trade['fee']['cost']
-                            fee_currency = trade['fee']['currency']
-                            
-                            # 累加手续费
-                            if fee_currency in total_fees:
-                                total_fees[fee_currency] += fee_cost
-                            else:
-                                total_fees[fee_currency] = fee_cost
-                
-                # 为了防止API请求过于频繁而被限制，每次请求后暂停一小段时间
-                time.sleep(exchange.rateLimit / 1000)
+        try:
+            print("正在一次性获取所有合约成交记录 (这可能需要一些时间)...")
+            # 注意：大部分交易所支持不带 symbol 参数来获取全部交易记录。
+            # 如果记录数量超过交易所单次返回的上限 (e.g., 1000), 可能需要自行实现分页逻辑来获取完整历史。
+            all_trades = exchange.fetch_my_trades(since=since_timestamp, limit=1000)
 
-            except ccxt.NetworkError as e:
-                print(f"查询 {symbol} 时发生网络错误: {e}，稍后重试...")
-                time.sleep(5)
-            except ccxt.ExchangeError as e:
-                # 某些交易对可能没有交易历史，交易所会报错，这通常是正常的，可以忽略
-                pass
-            except Exception as e:
-                print(f"查询 {symbol} 时发生未知错误: {e}")
+            if all_trades:
+                print(f"成功获取到 {len(all_trades)} 条成交记录。开始统计手续费...")
+                for trade in all_trades:
+                    # 检查订单信息中是否包含手续费(fee)字段
+                    if 'fee' in trade and trade['fee'] is not None and trade['fee'].get('cost') is not None and trade['fee'].get('currency'):
+                        fee_cost = trade['fee']['cost']
+                        fee_currency = trade['fee']['currency']
+                        
+                        # 累加手续费
+                        total_fees[fee_currency] = total_fees.get(fee_currency, 0) + fee_cost
+        
+        except ccxt.NetworkError as e:
+            print(f"获取成交记录时发生网络错误: {e}，请检查网络连接。")
+            return
+        except ccxt.ExchangeError as e:
+            print(f"获取成交记录时交易所返回错误: {e}。")
+            print("请检查API密钥权限或交易所是否支持此操作。")
+            return
+        except Exception as e:
+            print(f"处理成交记录时发生未知错误: {e}")
+            return
 
         # --- 5. 显示结果 ---
         
