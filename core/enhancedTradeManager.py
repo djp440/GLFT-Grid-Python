@@ -227,7 +227,14 @@ class EnhancedTradeManager(TradeManager):
             can_sell = abs(current_position) < max_position
             
             # 取消现有订单（增强版会更智能地管理订单）
-            await self.cancelAllOrder()
+            try:
+                await self.cancelAllOrder()
+            except Exception as e:
+                # 如果没有订单需要取消，这是正常情况
+                if "No order to cancel" in str(e) or "22001" in str(e):
+                    logger.debug(f"{self.symbolName}没有现有订单需要取消")
+                else:
+                    logger.warning(f"{self.symbolName}取消订单时发生异常: {e}")
             
             orders_placed = 0
             
