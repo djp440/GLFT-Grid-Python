@@ -1,8 +1,8 @@
 {
   "ETH/USDT:USDT": {
     "enabled": true,
-    "baseSpread": 0.002,
-    "minSpread": 0.001,
+    "baseSpread": 0.0015,
+    "minSpread": 0.0001,
     "maxSpread": 0.004,
     "orderCoolDown": 0.1,
     "maxStockRadio": 0.5,
