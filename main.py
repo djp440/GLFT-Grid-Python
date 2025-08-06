@@ -106,7 +106,7 @@ async def runWebsocketTask(symbol_config: dict):
 
         # 检查是否使用增强版交易管理器
         config = GlobalConfig()
-        use_enhanced = config.trade_config.USE_ENHANCED_MANAGER
+        use_enhanced = config.TradeConfig.USE_ENHANCED_MANAGER
         
         if use_enhanced:
             logger.info(f"为 {symbolName} 使用增强版交易管理器")
