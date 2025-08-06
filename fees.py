@@ -22,14 +22,14 @@ def calculate_total_fees(symbols: list):
 
     if is_sandbox:
         print("*** 正在使用模拟盘环境 ***")
-        api_key = os.getenv('sandbox_apiKey')
-        api_secret = os.getenv('sandbox_secret')
-        passphrase = os.getenv('sandbox_password')
-    else:
-        print("*** 正在使用实盘环境 ***")
         api_key = os.getenv('apiKey')
         api_secret = os.getenv('secret')
         passphrase = os.getenv('password')
+    else:
+        print("*** 正在使用实盘环境 ***")
+        api_key = os.getenv('prod_apiKey')
+        api_secret = os.getenv('prod_secret')
+        passphrase = os.getenv('prod_password')
 
     if not api_key or not api_secret:
         env_type = "模拟盘" if is_sandbox else "实盘"
