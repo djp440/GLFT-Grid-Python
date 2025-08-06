@@ -8,7 +8,7 @@
     "maxStockRadio": 0.5,
     "orderAmountRatio": 0.05,
     "level": 5,
-    "direction": "both",
+    "direction": "long",
     "coin": "USDT"
   }
 }
